@@ -41,7 +41,17 @@ export class VibegeistWorld extends DurableObject<Env> {
       this.ghostsToday = (await ctx.storage.get<number>("ghostsToday")) ?? 0;
       this.ghostsAllTime = (await ctx.storage.get<number>("ghostsAllTime")) ?? 0;
       this.dayKey = (await ctx.storage.get<string>("dayKey")) ?? todayKey();
+      // the Durable Object's in-memory state (this.sessions) is wiped whenever
+      // the instance is evicted for inactivity - which can happen within
+      // seconds between hook pings. Without this, sessions would flicker in
+      // and out of existence unpredictably. Reload from storage on every cold start.
+      const stored = await ctx.storage.get<Record<string, SessionInfo>>("sessions");
+      this.sessions = new Map(Object.entries(stored ?? {}));
     });
+  }
+
+  private async persistSessions() {
+    await this.ctx.storage.put("sessions", Object.fromEntries(this.sessions));
   }
 
   private async resetDayIfNeeded() {
@@ -88,6 +98,7 @@ export class VibegeistWorld extends DurableObject<Env> {
     if (type === "join") {
       const pos = seededPos(id);
       this.sessions.set(id, { ...pos, lastSeen: Date.now() });
+      await this.persistSessions();
       this.broadcast({ type: "join", id, ...pos, active: this.sessions.size });
       const alarm = await this.ctx.storage.getAlarm();
       if (!alarm) await this.ctx.storage.setAlarm(Date.now() + 60_000);
@@ -99,17 +110,20 @@ export class VibegeistWorld extends DurableObject<Env> {
         const pos = seededPos(id);
         s = { ...pos, lastSeen: Date.now() };
         this.sessions.set(id, s);
+        await this.persistSessions();
         this.broadcast({ type: "join", id, ...pos, active: this.sessions.size });
         const alarm = await this.ctx.storage.getAlarm();
         if (!alarm) await this.ctx.storage.setAlarm(Date.now() + 60_000);
       } else {
         s.lastSeen = Date.now();
+        await this.persistSessions();
       }
       this.broadcast({ type: "activity", id });
     } else if (type === "ghost") {
       this.sessions.delete(id);
       this.ghostsToday += 1;
       this.ghostsAllTime += 1;
+      await this.persistSessions();
       await this.ctx.storage.put("ghostsToday", this.ghostsToday);
       await this.ctx.storage.put("ghostsAllTime", this.ghostsAllTime);
       this.broadcast({
@@ -139,13 +153,17 @@ export class VibegeistWorld extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    await this.ready;
     const now = Date.now();
+    let changed = false;
     for (const [id, s] of this.sessions) {
       if (now - s.lastSeen > STALE_MS) {
         this.sessions.delete(id);
+        changed = true;
         this.broadcast({ type: "leave", id, active: this.sessions.size });
       }
     }
+    if (changed) await this.persistSessions();
     if (this.sessions.size > 0) {
       await this.ctx.storage.setAlarm(Date.now() + 60_000);
     }
