@@ -3,7 +3,7 @@
 // and reports one anonymized event to the vibegeist server. Never throws —
 // a reporting failure must never break the user's Claude Code session.
 
-const SERVER_URL = process.env.VIBEGEIST_SERVER || 'http://localhost:8787';
+const SERVER_URL = process.env.VIBEGEIST_SERVER || 'https://vibegeist.dayloop-dilara.workers.dev';
 const EVENT_TYPE = process.argv[2]; // 'join' | 'activity' | 'ghost'
 
 let input = '';

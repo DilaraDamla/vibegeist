@@ -6,7 +6,7 @@
 import WebSocket from 'ws';
 import notifier from 'node-notifier';
 
-const SERVER_URL = process.env.VIBEGEIST_SERVER || 'ws://localhost:8787/ws';
+const SERVER_URL = process.env.VIBEGEIST_SERVER || 'wss://vibegeist.dayloop-dilara.workers.dev/ws';
 
 function connect() {
   const ws = new WebSocket(SERVER_URL);

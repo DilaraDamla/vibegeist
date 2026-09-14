@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vibegeist",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "durable_objects": {
+    "bindings": [{ "name": "WORLD", "class_name": "VibegeistWorld" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["VibegeistWorld"] }],
+  "assets": { "directory": "../public" }
+}
