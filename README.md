@@ -3,10 +3,17 @@
 A shared ambient world where every Claude Code session that finishes becomes a ghost.
 
 No chat, no accounts, no user-generated content. Your Claude Code hooks send three
-anonymous, hashed pings to a server: **join** (session starts), **activity**
-(a tool ran), **ghost** (session stops). The browser page turns that into little
+anonymous, hashed pings to a server: **join** (a turn starts), **activity**
+(a tool ran), **ghost** (a turn ends). The browser page turns that into little
 chicks that pace around and stack bricks while you work, then drift upward into
-ghosts when you're done — alongside everyone else in the world right now.
+ghosts when done — alongside everyone else in the world right now.
+
+Note that Claude Code's `Stop` hook fires at the end of every turn, not just
+when you close the whole session — so a chick is really "one turn," and a
+`UserPromptSubmit` hook re-joins it the instant you send your next message
+(rather than waiting for its first tool call) so it doesn't sit dead in
+between. This also means `ghostsToday`/`ghostsAllTime` count turns, not
+sessions - expect it to climb quickly during an active conversation.
 
 **Live, shared world:** https://vibegeist.dayloop-dilara.workers.dev
 
@@ -23,8 +30,8 @@ Add the hooks from `hook/settings.snippet.json` to your `~/.claude/settings.json
 
 Then open `/hooks` once inside Claude Code to reload the config.
 
-Every session you run will now show up as a chick in the shared world, and turn
-into a ghost the moment it stops.
+Every turn you run will now show up as a chick in the shared world, and turn
+into a ghost the moment it finishes.
 
 ## Run your own world instead
 
