@@ -290,16 +290,19 @@ function draw() {
   ctx.lineTo(leftSnowBase.x, leftSnowBase.y);
   ctx.closePath();
   ctx.fill();
-  // shadowed crevices in the snow for a little texture
+  // shadowed crevices in the snow for a little texture - offset and unequal,
+  // since two mirrored lines meeting at the peak read as an arrow, not rock
   ctx.strokeStyle = 'rgba(120,108,175,0.4)';
   ctx.lineWidth = 1.5;
   ctx.lineCap = 'round';
-  [-1, 1].forEach((side) => {
-    ctx.beginPath();
-    ctx.moveTo(m.peakX + side * 8, m.peakY + 14);
-    ctx.lineTo(m.peakX + side * 30, leftSnowBase.y - 6);
-    ctx.stroke();
-  });
+  ctx.beginPath();
+  ctx.moveTo(m.peakX - 14, m.peakY + 22);
+  ctx.lineTo(m.peakX - 34, leftSnowBase.y - 10);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(m.peakX + 22, m.peakY + 38);
+  ctx.lineTo(m.peakX + 16, rightSnowBase.y - 4);
+  ctx.stroke();
   // snow streaks trailing further down into the rock, like couloirs
   ctx.fillStyle = 'rgba(220,215,240,0.22)';
   [0.42, 0.58].forEach((laneFrac) => {
@@ -314,19 +317,21 @@ function draw() {
     ctx.fill();
   });
 
-  // rocky facets for texture, so it reads as rock rather than a flat triangle
+  // rocky facets for texture, so it reads as rock rather than a flat triangle -
+  // offset away from the peak and from each other, since two facets both apexed
+  // at the summit point read as an arrow, not rock shading
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
   ctx.beginPath();
-  ctx.moveTo(m.peakX, m.peakY + 30);
-  ctx.lineTo(m.peakX - 60, m.baseY - 40);
-  ctx.lineTo(m.peakX - 20, m.baseY - 40);
+  ctx.moveTo(m.peakX - 40, m.peakY + 60);
+  ctx.lineTo(m.peakX - 115, m.baseY - 30);
+  ctx.lineTo(m.peakX - 55, m.baseY - 30);
   ctx.closePath();
   ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
   ctx.beginPath();
-  ctx.moveTo(m.peakX, m.peakY + 20);
-  ctx.lineTo(m.peakX + 90, m.baseY - 10);
-  ctx.lineTo(m.peakX + 30, m.baseY - 10);
+  ctx.moveTo(m.peakX + 55, m.peakY + 75);
+  ctx.lineTo(m.peakX + 135, m.baseY - 15);
+  ctx.lineTo(m.peakX + 65, m.baseY - 15);
   ctx.closePath();
   ctx.fill();
 
@@ -395,7 +400,9 @@ function draw() {
       const orbR = 7 + s.climbed * 5;
       const orbX = px + dirX * orbDist;
       const orbY = groundY + dirY * orbDist - orbR * 0.6;
-      const hue0 = Math.floor((s.phase / (Math.PI * 2)) * 360);
+      // offset from the chick's own hue below, so the boulder is always a visibly
+      // different color from the chick pushing it, not a same-colored blob
+      const hue0 = Math.floor(((s.phase / (Math.PI * 2)) * 360 + 150) % 360);
       ctx.save();
       ctx.translate(orbX, orbY);
       ctx.rotate(s.climbed * 22 + walkPhase);
