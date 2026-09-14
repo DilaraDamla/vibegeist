@@ -92,8 +92,19 @@ export class VibegeistWorld extends DurableObject<Env> {
       const alarm = await this.ctx.storage.getAlarm();
       if (!alarm) await this.ctx.storage.setAlarm(Date.now() + 60_000);
     } else if (type === "activity") {
-      const s = this.sessions.get(id);
-      if (s) s.lastSeen = Date.now();
+      let s = this.sessions.get(id);
+      if (!s) {
+        // hook was installed mid-session, so no "join" ever fired for it -
+        // treat the first activity ping as an implicit join instead of dropping it
+        const pos = seededPos(id);
+        s = { ...pos, lastSeen: Date.now() };
+        this.sessions.set(id, s);
+        this.broadcast({ type: "join", id, ...pos, active: this.sessions.size });
+        const alarm = await this.ctx.storage.getAlarm();
+        if (!alarm) await this.ctx.storage.setAlarm(Date.now() + 60_000);
+      } else {
+        s.lastSeen = Date.now();
+      }
       this.broadcast({ type: "activity", id });
     } else if (type === "ghost") {
       this.sessions.delete(id);

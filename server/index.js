@@ -80,8 +80,17 @@ const server = createServer((req, res) => {
           sessions.set(id, { ...pos, joinedAt: Date.now(), lastSeen: Date.now() });
           broadcast({ type: 'join', id, ...pos, active: sessions.size });
         } else if (type === 'activity') {
-          const s = sessions.get(id);
-          if (s) s.lastSeen = Date.now();
+          let s = sessions.get(id);
+          if (!s) {
+            // hook installed mid-session: no "join" ever fired, so treat the
+            // first activity ping as an implicit join instead of dropping it
+            const pos = seededPos(id);
+            s = { ...pos, joinedAt: Date.now(), lastSeen: Date.now() };
+            sessions.set(id, s);
+            broadcast({ type: 'join', id, ...pos, active: sessions.size });
+          } else {
+            s.lastSeen = Date.now();
+          }
           broadcast({ type: 'activity', id });
         } else if (type === 'ghost') {
           sessions.delete(id);
