@@ -140,6 +140,50 @@ function makeMountainEdges() {
 makeMountainEdges();
 addEventListener('resize', makeMountainEdges);
 
+// a jagged central ridge from base to peak, splitting the face into a lit side
+// and a shadowed side - the single biggest thing that sells a flat shape as a
+// solid 3D form - plus scattered irregular rock chips over each side for real
+// low-poly texture. Scattered and randomly sized, not a tiled ladder of bands,
+// since a regular ladder reads as a staircase, not rock.
+let mountainSpine = null;
+let mountainFacets = null;
+function makeMountainRidge() {
+  const m = mountainGeometry();
+  const steps = 26;
+  const spineX = canvas.width * 0.5;
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const p = i / steps;
+    const x0 = spineX + (m.peakX - spineX) * p;
+    const y0 = m.baseY + (m.peakY - m.baseY) * p;
+    const taper = Math.sin(p * Math.PI);
+    const jitter = (hashRand(900 + i) - 0.5) * 2;
+    const amp = 16 * taper;
+    pts.push({ x: x0 + jitter * amp, y: y0 - Math.abs(jitter) * amp * 0.3, p });
+  }
+  mountainSpine = pts;
+
+  function facets(edgePts, seedBase) {
+    const f = [];
+    const count = 22;
+    for (let i = 0; i < count; i++) {
+      const p = 0.05 + hashRand(seedBase + i * 3) * 0.88;
+      const lane = hashRand(seedBase + i * 3 + 1);
+      const edgePt = edgePointAt(edgePts, p);
+      const spinePt = edgePointAt(mountainSpine, p);
+      const cx = spinePt.x + (edgePt.x - spinePt.x) * lane;
+      const cy = spinePt.y + (edgePt.y - spinePt.y) * lane;
+      const size = 12 + hashRand(seedBase + i * 3 + 2) * 22;
+      const angle = hashRand(seedBase + i * 7) * Math.PI * 2;
+      f.push({ cx, cy, size, angle, shade: hashRand(seedBase + i * 11) });
+    }
+    return f;
+  }
+  mountainFacets = { left: facets(mountainEdges.left, 2000), right: facets(mountainEdges.right, 3000) };
+}
+makeMountainRidge();
+addEventListener('resize', makeMountainRidge);
+
 // finds the point on a jagged edge at a given climb fraction, interpolating between
 // the two nearest generated points
 function edgePointAt(pts, targetP) {
@@ -254,6 +298,35 @@ function draw() {
   for (let i = mountainEdges.right.length - 1; i >= 0; i--) ctx.lineTo(mountainEdges.right[i].x, mountainEdges.right[i].y);
   ctx.closePath();
   ctx.fill();
+
+  // a jagged central ridge splits the face into a lit side and a shadowed side -
+  // the single strongest cue that this is a solid 3D form, not a flat shape
+  ctx.fillStyle = 'rgba(150,120,220,0.16)';
+  ctx.beginPath();
+  ctx.moveTo(mountainEdges.left[0].x, mountainEdges.left[0].y);
+  for (const pt of mountainEdges.left) ctx.lineTo(pt.x, pt.y);
+  for (let i = mountainSpine.length - 1; i >= 0; i--) ctx.lineTo(mountainSpine[i].x, mountainSpine[i].y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath();
+  ctx.moveTo(mountainSpine[0].x, mountainSpine[0].y);
+  for (const pt of mountainSpine) ctx.lineTo(pt.x, pt.y);
+  for (let i = mountainEdges.right.length - 1; i >= 0; i--) ctx.lineTo(mountainEdges.right[i].x, mountainEdges.right[i].y);
+  ctx.closePath();
+  ctx.fill();
+
+  // scattered irregular rock chips over each face, for real low-poly texture
+  for (const facet of [...mountainFacets.left, ...mountainFacets.right]) {
+    ctx.fillStyle = facet.shade < 0.5 ? `rgba(0,0,0,${0.05 + facet.shade * 0.14})` : `rgba(255,255,255,${(facet.shade - 0.5) * 0.14})`;
+    ctx.beginPath();
+    ctx.moveTo(facet.cx + Math.cos(facet.angle) * facet.size, facet.cy + Math.sin(facet.angle) * facet.size * 0.6);
+    ctx.lineTo(facet.cx + Math.cos(facet.angle + 2.3) * facet.size * 0.8, facet.cy + Math.sin(facet.angle + 2.3) * facet.size * 0.6);
+    ctx.lineTo(facet.cx + Math.cos(facet.angle + 4.6) * facet.size * 0.9, facet.cy + Math.sin(facet.angle + 4.6) * facet.size * 0.6);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   // a soft mystical glow at the peak
   const glow = ctx.createRadialGradient(m.peakX, m.peakY, 0, m.peakX, m.peakY, 90);
   glow.addColorStop(0, 'rgba(190,150,255,0.35)');
@@ -303,53 +376,6 @@ function draw() {
   ctx.moveTo(m.peakX + 22, m.peakY + 38);
   ctx.lineTo(m.peakX + 16, rightSnowBase.y - 4);
   ctx.stroke();
-  // snow streaks trailing further down into the rock, like couloirs
-  ctx.fillStyle = 'rgba(220,215,240,0.22)';
-  [0.42, 0.58].forEach((laneFrac) => {
-    const top = pointOnMountain(laneFrac, snowStart);
-    const bottom = pointOnMountain(laneFrac, snowStart - 0.2);
-    ctx.beginPath();
-    ctx.moveTo(top.x - 5, top.y);
-    ctx.lineTo(top.x + 5, top.y);
-    ctx.lineTo(bottom.x + 1.5, bottom.y);
-    ctx.lineTo(bottom.x - 1.5, bottom.y);
-    ctx.closePath();
-    ctx.fill();
-  });
-
-  // rocky facets for texture, so it reads as rock rather than a flat triangle -
-  // offset away from the peak and from each other, since two facets both apexed
-  // at the summit point read as an arrow, not rock shading
-  ctx.fillStyle = 'rgba(0,0,0,0.15)';
-  ctx.beginPath();
-  ctx.moveTo(m.peakX - 40, m.peakY + 60);
-  ctx.lineTo(m.peakX - 115, m.baseY - 30);
-  ctx.lineTo(m.peakX - 55, m.baseY - 30);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.beginPath();
-  ctx.moveTo(m.peakX + 55, m.peakY + 75);
-  ctx.lineTo(m.peakX + 135, m.baseY - 15);
-  ctx.lineTo(m.peakX + 65, m.baseY - 15);
-  ctx.closePath();
-  ctx.fill();
-
-  // a winding path up the slope
-  ctx.strokeStyle = 'rgba(230,225,245,0.18)';
-  ctx.lineWidth = 3;
-  ctx.setLineDash([6, 8]);
-  ctx.beginPath();
-  ctx.moveTo(m.peakX, m.peakY + 30);
-  const pathSteps = 5;
-  for (let i = 1; i <= pathSteps; i++) {
-    const p = i / pathSteps;
-    const wiggle = Math.sin(p * 6) * 26 * p;
-    const pt = pointOnMountain(0.5, 1 - p);
-    ctx.lineTo(pt.x + wiggle, pt.y);
-  }
-  ctx.stroke();
-  ctx.setLineDash([]);
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
