@@ -62,6 +62,23 @@ function makeStars() {
 makeStars();
 addEventListener('resize', makeStars);
 
+// wind gusts drifting across the sky - soft curved streaks, like a mystical
+// current blowing past the peak, fading in and out as they cross
+let windGusts = [];
+function makeWindGusts() {
+  windGusts = Array.from({ length: 6 }, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height * 0.5,
+    len: 90 + Math.random() * 150,
+    speed: 26 + Math.random() * 34,
+    curve: (Math.random() - 0.5) * 46,
+    opacity: 0.07 + Math.random() * 0.09,
+    phase: Math.random() * Math.PI * 2,
+  }));
+}
+makeWindGusts();
+addEventListener('resize', makeWindGusts);
+
 // mountain geometry: a lane narrows from the base up to a single peak point.
 // climbProgress 0..1 maps a session's lane fraction (its seeded x) and height to
 // an (x,y) point on the slope - more tool calls this turn = higher up the mountain.
@@ -271,6 +288,25 @@ function draw() {
     ctx.beginPath();
     ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // wind gusts, drifting slowly across the sky and fading in and out
+  ctx.strokeStyle = '#d2d7eb';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 1.4;
+  for (const g of windGusts) {
+    g.x += g.speed * dt;
+    if (g.x - g.len > canvas.width) {
+      g.x = -g.len - Math.random() * 200;
+      g.y = Math.random() * canvas.height * 0.5;
+    }
+    const bob = Math.sin(t * 0.5 + g.phase) * 6;
+    ctx.globalAlpha = g.opacity * (0.5 + 0.5 * Math.sin(t * 0.7 + g.phase));
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y + bob);
+    ctx.quadraticCurveTo(g.x + g.len * 0.5, g.y + bob + g.curve, g.x + g.len, g.y + bob);
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
 
