@@ -54,3 +54,44 @@ export class Route {
     return this.anchor(WAYPOINTS[WAYPOINTS.length - 1]);
   }
 }
+
+// a compact one-sided profile for the small widget view: progress runs left
+// to right along a single ascending slope, instead of the full symmetric
+// peak - a small window can't fit the whole diorama legibly, but a "climbing
+// toward the right" reads as progress at a glance
+export class SideRoute {
+  constructor(canvas) {
+    this.canvas = canvas;
+  }
+
+  endpoints() {
+    const c = this.canvas;
+    const marginX = c.width * 0.1;
+    return {
+      x0: marginX,
+      x1: c.width - marginX,
+      y0: c.height * 0.86,
+      y1: c.height * 0.16,
+    };
+  }
+
+  anchor(wp) {
+    return this.pointAt(wp.p, 0);
+  }
+
+  anchors() {
+    return WAYPOINTS.map((wp) => ({ wp, pos: this.anchor(wp) }));
+  }
+
+  pointAt(progress, lateralOffset = 0) {
+    const p = Math.max(0, Math.min(1, progress));
+    const { x0, x1, y0, y1 } = this.endpoints();
+    const x = x0 + (x1 - x0) * p;
+    const y = y0 + (y1 - y0) * p;
+    if (!lateralOffset) return { x, y };
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: x + (-dy / len) * lateralOffset, y: y + (dx / len) * lateralOffset };
+  }
+}

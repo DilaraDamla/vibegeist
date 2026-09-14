@@ -1,7 +1,8 @@
 import { Scene } from './scene.js';
 import { Mountain } from './mountain.js';
-import { Route } from './route.js';
+import { Route, SideRoute } from './route.js';
 import { Waypoints } from './waypoints.js';
+import { WidgetScene } from './widgetScene.js';
 import { Task } from './task.js';
 import { NetworkClient } from './network.js';
 
@@ -20,12 +21,16 @@ const scene = new Scene(canvas);
 const mountain = new Mountain(canvas);
 const route = new Route(canvas);
 const waypoints = new Waypoints(canvas, route);
-addEventListener('resize', () => {
+const sideRoute = new SideRoute(canvas);
+const widgetScene = new WidgetScene(canvas, sideRoute);
+let pipActive = false;
+function resizeAll() {
   resize();
   scene.resize();
   mountain.resize();
   waypoints.resize();
-});
+}
+addEventListener('resize', resizeAll);
 
 const tasks = new Map(); // id -> Task
 let ghostsToday = 0;
@@ -71,22 +76,30 @@ function draw() {
   lastFrameTs = now;
   const t = now / 1000;
 
-  scene.drawSky(ctx);
-  scene.drawStars(ctx, t);
-  scene.drawWind(ctx, t, dt);
-  scene.drawFarRanges(ctx);
-  mountain.draw(ctx);
-  waypoints.draw(ctx, t, dt);
+  // the widget gets its own compact one-sided view (progress running left to
+  // right) instead of the full symmetric peak - a small corner window can't
+  // fit the whole diorama legibly
+  if (pipActive) {
+    widgetScene.draw(ctx, t);
+  } else {
+    scene.drawSky(ctx);
+    scene.drawStars(ctx, t);
+    scene.drawWind(ctx, t, dt);
+    scene.drawFarRanges(ctx);
+    mountain.draw(ctx);
+    waypoints.draw(ctx, t, dt);
+  }
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
+  const activeRoute = pipActive ? sideRoute : route;
   // back-to-front by ground height, so overlapping chicks stack sensibly
   const ordered = [...tasks.values()].sort((a, b) => a.lastY - b.lastY);
   let removedAny = false;
   for (const task of ordered) {
-    task.update(dt, now, route);
-    task.draw(ctx, route, t, now);
+    task.update(dt, now, activeRoute);
+    task.draw(ctx, activeRoute, t, now);
     if (task.finished) removedAny = true;
   }
   if (removedAny) {
@@ -97,7 +110,7 @@ function draw() {
   // has to stay in sync with the render loop, not just with socket events
   updateHud();
 
-  scene.drawSnow(ctx, t, dt);
+  if (!pipActive) scene.drawSnow(ctx, t, dt);
 
   requestAnimationFrame(draw);
 }
@@ -109,7 +122,7 @@ pipBtn.addEventListener('click', async () => {
     alert('Bu özellik Chrome veya Edge gerektiriyor.');
     return;
   }
-  const pipWindow = await documentPictureInPicture.requestWindow({ width: 280, height: 220 });
+  const pipWindow = await documentPictureInPicture.requestWindow({ width: 420, height: 320 });
 
   for (const styleEl of document.querySelectorAll('style')) {
     pipWindow.document.head.append(styleEl.cloneNode(true));
@@ -118,6 +131,7 @@ pipBtn.addEventListener('click', async () => {
   pipWindow.document.body.append(hud);
   pipWindow.document.body.append(canvas);
   pipBtn.style.display = 'none';
+  pipActive = true;
   resize();
   pipWindow.addEventListener('resize', resize);
 
@@ -125,6 +139,7 @@ pipBtn.addEventListener('click', async () => {
     document.body.append(hud);
     document.body.append(canvas);
     pipBtn.style.display = '';
-    resize();
+    pipActive = false;
+    resizeAll();
   });
 });

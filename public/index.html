@@ -6,8 +6,13 @@
 <title>vibegeist</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0b0d12; color: #cfd3dc; font-family: ui-monospace, monospace; overflow: hidden; }
-  #hud { position: fixed; top: 12px; left: 12px; font-size: 13px; opacity: .85; z-index: 2; }
-  #hud small { display: block; opacity: .6; margin-top: 2px; }
+  #hud {
+    position: fixed; top: 10px; left: 10px; z-index: 2;
+    font-size: clamp(10px, 2.6vw, 13px);
+    background: rgba(10,8,18,0.55); backdrop-filter: blur(2px);
+    padding: 5px 9px; border-radius: 6px; line-height: 1.35;
+  }
+  #hud small { display: block; opacity: .65; margin-top: 2px; }
   canvas { display: block; }
   #pipBtn {
     position: fixed; top: 10px; right: 12px; z-index: 3;

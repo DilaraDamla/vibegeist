@@ -28,9 +28,12 @@ export class Scene {
       phase: Math.random() * Math.PI * 2,
     }));
 
+    // confined to the upper mountain (peak/temple/ridge) - the lower slope
+    // has a forest and a camp with a fire, it shouldn't be snowing on those
+    this.snowBandY = canvas.height * 0.45;
     this.snowflakes = Array.from({ length: 45 }, () => ({
       x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
+      y: Math.random() * this.snowBandY,
       r: Math.random() * 1.6 + 0.6,
       speed: Math.random() * 14 + 8,
       sway: Math.random() * Math.PI * 2,
