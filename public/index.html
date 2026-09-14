@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>vibegeist</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d12; color: #cfd3dc; font-family: ui-monospace, monospace; overflow: hidden; }
+  #hud { position: fixed; top: 12px; left: 12px; font-size: 13px; opacity: .85; z-index: 2; }
+  #hud small { display: block; opacity: .6; margin-top: 2px; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="hud">bağlanıyor...</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+resize();
+addEventListener('resize', resize);
+
+const hud = document.getElementById('hud');
+const sessions = new Map(); // id -> {x,y,state,since,pulse}
+let ghostsToday = 0;
+
+function updateHud() {
+  hud.innerHTML = `şu an <b>${sessions.size}</b> kişi çalışıyor<small>bugün ${ghostsToday} ruh yükseldi</small>`;
+}
+
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+let ws;
+
+function connect() {
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'snapshot') {
+      sessions.clear();
+      for (const s of msg.active) sessions.set(s.id, { x: s.x, y: s.y, state: 'alive', since: Date.now() });
+      ghostsToday = msg.ghostsToday || 0;
+    } else if (msg.type === 'join') {
+      sessions.set(msg.id, { x: msg.x, y: msg.y, state: 'alive', since: Date.now() });
+    } else if (msg.type === 'activity') {
+      const s = sessions.get(msg.id);
+      if (s) s.pulse = Date.now();
+    } else if (msg.type === 'ghost') {
+      const s = sessions.get(msg.id);
+      if (s) { s.state = 'ghost'; s.since = Date.now(); }
+      ghostsToday = msg.ghostsToday ?? ghostsToday + 1;
+      setTimeout(() => sessions.delete(msg.id), 3000);
+    } else if (msg.type === 'leave') {
+      sessions.delete(msg.id);
+    }
+    updateHud();
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+connect();
+
+function draw() {
+  ctx.fillStyle = '#0b0d12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const now = Date.now();
+
+  for (const [, s] of sessions) {
+    const px = 40 + s.x * (canvas.width - 80);
+    const py = 40 + s.y * (canvas.height - 80);
+
+    if (s.state === 'alive') {
+      const pulseAge = s.pulse ? now - s.pulse : 9999;
+      const r = 6 + (pulseAge < 400 ? 3 * (1 - pulseAge / 400) : 0);
+      ctx.fillStyle = '#7de1c3';
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const age = now - s.since;
+      const t = Math.min(age / 3000, 1);
+      ctx.globalAlpha = 1 - t;
+      ctx.fillStyle = '#cfd3dc';
+      ctx.beginPath();
+      ctx.arc(px, py - t * 60, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

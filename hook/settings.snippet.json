@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node /ABSOLUTE/PATH/TO/vibegeist/hook/report.js join" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|Read|Glob|Grep",
+        "hooks": [
+          { "type": "command", "command": "node /ABSOLUTE/PATH/TO/vibegeist/hook/report.js activity" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node /ABSOLUTE/PATH/TO/vibegeist/hook/report.js ghost" }
+        ]
+      }
+    ]
+  }
+}
