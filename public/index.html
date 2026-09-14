@@ -90,13 +90,15 @@ function draw() {
     if (s.state === 'alive') {
       // pace back and forth on a fixed ground line - no vertical drift, that's what read as floating
       const speed = 0.5;
-      const wx = Math.sin(t * speed + s.phase) * 18;
-      const facingLeft = Math.cos(t * speed + s.phase) < 0; // direction of travel
+      const walkPhase = t * speed + s.phase;
+      const wx = Math.sin(walkPhase) * 18;
+      const facingLeft = Math.cos(walkPhase) < 0; // direction of travel
       const px = homeX + wx;
       const groundY = homeY;
 
-      // footstep bob: two little hops per pacing cycle, feet touch "ground" between hops
-      const bob = Math.abs(Math.sin(t * 5 + s.phase)) * 4;
+      // small step bob tied to the same walk phase (not an independent clock) so it
+      // reads as footsteps in sync with the pacing, not an unrelated bounce/hop
+      const bob = Math.abs(Math.sin(walkPhase * 4)) * 1.5;
       const py = groundY - bob;
 
       const pulseAge = s.pulse ? now - s.pulse : 9999;
