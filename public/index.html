@@ -22,11 +22,15 @@ resize();
 addEventListener('resize', resize);
 
 const hud = document.getElementById('hud');
-const sessions = new Map(); // id -> {x,y,state,since,pulse}
+const sessions = new Map(); // id -> {x,y,state,since,pulse,phase,stack}
 let ghostsToday = 0;
 
 function updateHud() {
   hud.innerHTML = `şu an <b>${sessions.size}</b> civciv çalışıyor<small>bugün ${ghostsToday} ruh yükseldi</small>`;
+}
+
+function freshSession(x, y) {
+  return { x, y, state: 'alive', since: Date.now(), phase: Math.random() * Math.PI * 2, stack: 0 };
 }
 
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -38,13 +42,13 @@ function connect() {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'snapshot') {
       sessions.clear();
-      for (const s of msg.active) sessions.set(s.id, { x: s.x, y: s.y, state: 'alive', since: Date.now() });
+      for (const s of msg.active) sessions.set(s.id, freshSession(s.x, s.y));
       ghostsToday = msg.ghostsToday || 0;
     } else if (msg.type === 'join') {
-      sessions.set(msg.id, { x: msg.x, y: msg.y, state: 'alive', since: Date.now() });
+      sessions.set(msg.id, freshSession(msg.x, msg.y));
     } else if (msg.type === 'activity') {
       const s = sessions.get(msg.id);
-      if (s) s.pulse = Date.now();
+      if (s) { s.pulse = Date.now(); s.stack = Math.min((s.stack || 0) + 1, 8); }
     } else if (msg.type === 'ghost') {
       const s = sessions.get(msg.id);
       if (s) { s.state = 'ghost'; s.since = Date.now(); }
@@ -63,24 +67,41 @@ function draw() {
   ctx.fillStyle = '#0b0d12';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const now = Date.now();
+  const t = now / 1000;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
   for (const [, s] of sessions) {
-    const px = 40 + s.x * (canvas.width - 80);
-    const py = 40 + s.y * (canvas.height - 80);
+    const homeX = 50 + s.x * (canvas.width - 100);
+    const homeY = 50 + s.y * (canvas.height - 100);
 
     if (s.state === 'alive') {
+      // gentle wander around the home spot so it looks like it's pacing while it works
+      const wx = Math.sin(t * 0.6 + s.phase) * 16;
+      const wy = Math.cos(t * 0.4 + s.phase * 1.3) * 10;
+      const px = homeX + wx;
+      const py = homeY + wy;
+
       const pulseAge = s.pulse ? now - s.pulse : 9999;
       const bump = pulseAge < 400 ? 8 * (1 - pulseAge / 400) : 0;
+
+      // stack of bricks growing beside it, one per tool call, most recent on top
+      const stack = s.stack || 0;
+      for (let i = 0; i < stack; i++) {
+        const isTop = i === stack - 1;
+        const topBump = isTop && pulseAge < 400 ? 4 * (1 - pulseAge / 400) : 0;
+        ctx.font = `${14 + topBump}px sans-serif`;
+        ctx.fillText('🧱', px + 20, py - 10 - i * 13 - topBump);
+      }
+
       ctx.font = `${26 + bump}px sans-serif`;
       ctx.fillText('🐤', px, py);
     } else {
       const age = now - s.since;
-      const t = Math.min(age / 3000, 1);
-      ctx.globalAlpha = 1 - t;
+      const drift = Math.min(age / 3000, 1);
+      ctx.globalAlpha = 1 - drift;
       ctx.font = '26px sans-serif';
-      ctx.fillText('👻', px, py - t * 60);
+      ctx.fillText('👻', homeX, homeY - drift * 60);
       ctx.globalAlpha = 1;
     }
   }

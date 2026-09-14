@@ -5,9 +5,11 @@
   "type": "module",
   "description": "A shared ambient world where every finished Claude Code task becomes a ghost.",
   "scripts": {
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "notify": "node notifier/watch.js"
   },
   "dependencies": {
+    "node-notifier": "^10.0.1",
     "ws": "^8.18.0"
   }
 }
