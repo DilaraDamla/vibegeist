@@ -13,6 +13,7 @@ const STALE_MS = 10 * 60 * 1000;
 // sessionHash -> { x, y, joinedAt, lastSeen }
 const sessions = new Map();
 let ghostsToday = 0;
+let ghostsAllTime = 0; // in-memory only here; the deployed worker persists this
 let dayKey = new Date().toDateString();
 
 const clients = new Set();
@@ -85,7 +86,8 @@ const server = createServer((req, res) => {
         } else if (type === 'ghost') {
           sessions.delete(id);
           ghostsToday += 1;
-          broadcast({ type: 'ghost', id, active: sessions.size, ghostsToday });
+          ghostsAllTime += 1;
+          broadcast({ type: 'ghost', id, active: sessions.size, ghostsToday, ghostsAllTime });
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -105,6 +107,7 @@ const server = createServer((req, res) => {
       JSON.stringify({
         active: [...sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y })),
         ghostsToday,
+        ghostsAllTime,
       })
     );
     return;
@@ -123,6 +126,7 @@ wss.on('connection', (ws) => {
       type: 'snapshot',
       active: [...sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y })),
       ghostsToday,
+      ghostsAllTime,
     })
   );
   ws.on('close', () => clients.delete(ws));

@@ -31,6 +31,7 @@ const STALE_MS = 10 * 60 * 1000;
 export class VibegeistWorld extends DurableObject<Env> {
   sessions: Map<string, SessionInfo> = new Map();
   ghostsToday = 0;
+  ghostsAllTime = 0;
   dayKey = "";
   private ready: Promise<void>;
 
@@ -38,6 +39,7 @@ export class VibegeistWorld extends DurableObject<Env> {
     super(ctx, env);
     this.ready = ctx.blockConcurrencyWhile(async () => {
       this.ghostsToday = (await ctx.storage.get<number>("ghostsToday")) ?? 0;
+      this.ghostsAllTime = (await ctx.storage.get<number>("ghostsAllTime")) ?? 0;
       this.dayKey = (await ctx.storage.get<string>("dayKey")) ?? todayKey();
     });
   }
@@ -72,6 +74,7 @@ export class VibegeistWorld extends DurableObject<Env> {
         type: "snapshot",
         active: [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y })),
         ghostsToday: this.ghostsToday,
+        ghostsAllTime: this.ghostsAllTime,
       })
     );
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -95,19 +98,32 @@ export class VibegeistWorld extends DurableObject<Env> {
     } else if (type === "ghost") {
       this.sessions.delete(id);
       this.ghostsToday += 1;
+      this.ghostsAllTime += 1;
       await this.ctx.storage.put("ghostsToday", this.ghostsToday);
-      this.broadcast({ type: "ghost", id, active: this.sessions.size, ghostsToday: this.ghostsToday });
+      await this.ctx.storage.put("ghostsAllTime", this.ghostsAllTime);
+      this.broadcast({
+        type: "ghost",
+        id,
+        active: this.sessions.size,
+        ghostsToday: this.ghostsToday,
+        ghostsAllTime: this.ghostsAllTime,
+      });
     }
 
     return { ok: true };
   }
 
-  async getState(): Promise<{ active: { id: string; x: number; y: number }[]; ghostsToday: number }> {
+  async getState(): Promise<{
+    active: { id: string; x: number; y: number }[];
+    ghostsToday: number;
+    ghostsAllTime: number;
+  }> {
     await this.ready;
     await this.resetDayIfNeeded();
     return {
       active: [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y })),
       ghostsToday: this.ghostsToday,
+      ghostsAllTime: this.ghostsAllTime,
     };
   }
 

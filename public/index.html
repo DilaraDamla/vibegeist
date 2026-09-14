@@ -36,9 +36,10 @@ addEventListener('resize', resize);
 const hud = document.getElementById('hud');
 const sessions = new Map(); // id -> {x,y,state,since,pulse,phase,stack}
 let ghostsToday = 0;
+let ghostsAllTime = 0;
 
 function updateHud() {
-  hud.innerHTML = `şu an <b>${sessions.size}</b> civciv çalışıyor<small>bugün ${ghostsToday} ruh yükseldi</small>`;
+  hud.innerHTML = `şu an <b>${sessions.size}</b> civciv çalışıyor<small>bugün ${ghostsToday} ruh yükseldi · toplam ${ghostsAllTime}</small>`;
 }
 
 function freshSession(x, y) {
@@ -56,6 +57,7 @@ function connect() {
       sessions.clear();
       for (const s of msg.active) sessions.set(s.id, freshSession(s.x, s.y));
       ghostsToday = msg.ghostsToday || 0;
+      ghostsAllTime = msg.ghostsAllTime || 0;
     } else if (msg.type === 'join') {
       sessions.set(msg.id, freshSession(msg.x, msg.y));
     } else if (msg.type === 'activity') {
@@ -65,6 +67,7 @@ function connect() {
       const s = sessions.get(msg.id);
       if (s) { s.state = 'ghost'; s.since = Date.now(); }
       ghostsToday = msg.ghostsToday ?? ghostsToday + 1;
+      ghostsAllTime = msg.ghostsAllTime ?? ghostsAllTime + 1;
       setTimeout(() => sessions.delete(msg.id), 3000);
     } else if (msg.type === 'leave') {
       sessions.delete(msg.id);

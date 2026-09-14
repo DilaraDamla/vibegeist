@@ -19,7 +19,7 @@ function connect() {
       if (msg.type === 'ghost') {
         notifier.notify({
           title: 'vibegeist',
-          message: `👻 bir ruh yükseldi — bugün toplam ${msg.ghostsToday}`,
+          message: `👻 bir ruh yükseldi — bugün ${msg.ghostsToday}, tüm zamanlar ${msg.ghostsAllTime}`,
           sound: false,
         });
       } else if (msg.type === 'join') {
