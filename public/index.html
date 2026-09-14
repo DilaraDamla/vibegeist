@@ -154,17 +154,22 @@ function draw() {
     const homeY = 40 + s.y * (skyH - 80);
 
     if (s.state === 'alive') {
-      // pace back and forth on a fixed ground line - no vertical drift, that's what read as floating
-      const speed = 0.5;
+      // pace back and forth on a fixed ground line - no vertical drift, that's what read as floating.
+      // Fast + wide enough that the motion is obvious within a few seconds of glancing at the page,
+      // not just technically-correct-but-imperceptible.
+      const speed = 1.3;
       const walkPhase = t * speed + s.phase;
-      const wx = Math.sin(walkPhase) * 18;
+      const wx = Math.sin(walkPhase) * 46;
       const facingLeft = Math.cos(walkPhase) < 0; // direction of travel
       const px = homeX + wx;
       const groundY = homeY;
 
       // small step bob tied to the same walk phase (not an independent clock) so it
       // reads as footsteps in sync with the pacing, not an unrelated bounce/hop
-      const bob = Math.abs(Math.sin(walkPhase * 4)) * 1.5;
+      const bob = Math.abs(Math.sin(walkPhase * 4)) * 2.5;
+      // a little side-to-side waddle rotation, since a single static emoji has no leg
+      // animation - this is what actually sells "walking" rather than "sliding"
+      const waddle = Math.sin(walkPhase * 4) * 0.12;
       const py = groundY - bob;
 
       const pulseAge = s.pulse ? now - s.pulse : 9999;
@@ -191,6 +196,7 @@ function draw() {
       const hue = Math.floor((s.phase / (Math.PI * 2)) * 360);
       ctx.save();
       ctx.translate(px, py);
+      ctx.rotate(waddle);
       if (facingLeft) ctx.scale(-1, 1);
       ctx.filter = `hue-rotate(${hue}deg) saturate(1.4)`;
       ctx.font = `${26 + bump}px sans-serif`;
