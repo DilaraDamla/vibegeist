@@ -1,5 +1,7 @@
 import { Scene } from './scene.js';
 import { Mountain } from './mountain.js';
+import { Route } from './route.js';
+import { Waypoints } from './waypoints.js';
 import { Task } from './task.js';
 import { NetworkClient } from './network.js';
 
@@ -16,10 +18,13 @@ resize();
 
 const scene = new Scene(canvas);
 const mountain = new Mountain(canvas);
+const route = new Route(canvas);
+const waypoints = new Waypoints(canvas, route);
 addEventListener('resize', () => {
   resize();
   scene.resize();
   mountain.resize();
+  waypoints.resize();
 });
 
 const tasks = new Map(); // id -> Task
@@ -71,6 +76,7 @@ function draw() {
   scene.drawWind(ctx, t, dt);
   scene.drawFarRanges(ctx);
   mountain.draw(ctx);
+  waypoints.draw(ctx, t, dt);
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -79,8 +85,8 @@ function draw() {
   const ordered = [...tasks.values()].sort((a, b) => a.lastY - b.lastY);
   let removedAny = false;
   for (const task of ordered) {
-    task.update(dt, now, mountain);
-    task.draw(ctx, mountain, t, now);
+    task.update(dt, now, route);
+    task.draw(ctx, route, t, now);
     if (task.finished) removedAny = true;
   }
   if (removedAny) {

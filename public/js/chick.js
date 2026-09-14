@@ -1,12 +1,14 @@
+import { drawAccessory } from './accessories.js';
+
 // a hand-drawn chick instead of a static emoji, so the legs can actually swing -
 // no emoji glyph has walk-cycle frames, which is why every emoji-based attempt
 // at "walking" kept reading as sliding, hopping, or swaying instead.
 //
-// opts: { bodyR, hue, walkPhase, facingLeft, bump, armsRaised, reachToward }
+// opts: { bodyR, hue, walkPhase, facingLeft, bump, armsRaised, reachToward, accessory }
 // reachToward: {x,y} in the chick's local "facing right" space to reach an arm
 // toward (the carried orb), or null for a relaxed arm.
 export function drawChick(ctx, px, groundY, opts) {
-  const { bodyR, hue, walkPhase, facingLeft, bump = 0, armsRaised = false, reachToward = null } = opts;
+  const { bodyR, hue, walkPhase, facingLeft, bump = 0, armsRaised = false, reachToward = null, accessory = null, t = 0 } = opts;
   const bodyColor = `hsl(${hue}, 62%, 72%)`;
   const beakColor = `hsl(${(hue + 30) % 360}, 75%, 58%)`;
   const legL = 8;
@@ -112,6 +114,8 @@ export function drawChick(ctx, px, groundY, opts) {
   ctx.beginPath();
   ctx.arc(bodyR * 0.48, bodyCy - bodyR * 0.55, bodyR * 0.08, 0, Math.PI * 2);
   ctx.fill();
+
+  if (accessory) drawAccessory(ctx, accessory, bodyR, bodyCy, hue, t);
 
   ctx.restore();
 
