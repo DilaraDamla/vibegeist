@@ -7,7 +7,7 @@ import { appendFileSync } from 'node:fs';
 
 const SERVER_URL = process.env.VIBEGEIST_SERVER || 'https://vibegeist.dayloop-dilara.workers.dev';
 const EVENT_TYPE = process.argv[2]; // 'join' | 'activity' | 'ghost'
-const DEBUG_LOG = process.env.VIBEGEIST_DEBUG_LOG || 'C:/Users/serda/vibegeist-hook-debug.log';
+const DEBUG_LOG = process.env.VIBEGEIST_DEBUG_LOG; // unset by default; set to a file path to debug hook firing
 
 function debugLog(line) {
   if (!DEBUG_LOG) return;
