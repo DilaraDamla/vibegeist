@@ -26,7 +26,7 @@ const sessions = new Map(); // id -> {x,y,state,since,pulse}
 let ghostsToday = 0;
 
 function updateHud() {
-  hud.innerHTML = `şu an <b>${sessions.size}</b> kişi çalışıyor<small>bugün ${ghostsToday} ruh yükseldi</small>`;
+  hud.innerHTML = `şu an <b>${sessions.size}</b> civciv çalışıyor<small>bugün ${ghostsToday} ruh yükseldi</small>`;
 }
 
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -63,6 +63,8 @@ function draw() {
   ctx.fillStyle = '#0b0d12';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const now = Date.now();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
 
   for (const [, s] of sessions) {
     const px = 40 + s.x * (canvas.width - 80);
@@ -70,19 +72,15 @@ function draw() {
 
     if (s.state === 'alive') {
       const pulseAge = s.pulse ? now - s.pulse : 9999;
-      const r = 6 + (pulseAge < 400 ? 3 * (1 - pulseAge / 400) : 0);
-      ctx.fillStyle = '#7de1c3';
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fill();
+      const bump = pulseAge < 400 ? 8 * (1 - pulseAge / 400) : 0;
+      ctx.font = `${26 + bump}px sans-serif`;
+      ctx.fillText('🐤', px, py);
     } else {
       const age = now - s.since;
       const t = Math.min(age / 3000, 1);
       ctx.globalAlpha = 1 - t;
-      ctx.fillStyle = '#cfd3dc';
-      ctx.beginPath();
-      ctx.arc(px, py - t * 60, 7, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.font = '26px sans-serif';
+      ctx.fillText('👻', px, py - t * 60);
       ctx.globalAlpha = 1;
     }
   }
