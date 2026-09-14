@@ -84,6 +84,91 @@ function pointOnMountain(laneFrac, progress) {
   };
 }
 
+// deterministic pseudo-random, so jagged terrain is stable frame to frame instead
+// of crawling around, but still looks irregular rather than hand-placed
+function hashRand(seed) {
+  const x = Math.sin(seed * 127.1) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+// two faded, distant silhouettes behind the main peak - real mountain scenes read
+// as layered ridges receding into haze, not one flat shape
+let farRanges = [];
+function makeFarRanges() {
+  farRanges = [0.5, 0.4].map((heightFrac, layer) => {
+    const baseY = canvas.height * (0.78 + layer * 0.05);
+    const peakY = canvas.height * heightFrac;
+    const points = [];
+    const steps = 10;
+    for (let i = 0; i <= steps; i++) {
+      const p = i / steps;
+      const x = p * canvas.width;
+      const jitter = hashRand(layer * 97 + i);
+      const y = baseY - (baseY - peakY) * Math.pow(Math.sin(p * Math.PI), 0.7) * (0.55 + jitter * 0.45);
+      points.push({ x, y });
+    }
+    return { points, color: layer === 0 ? 'rgba(40,34,74,0.55)' : 'rgba(60,52,102,0.4)' };
+  });
+}
+makeFarRanges();
+addEventListener('resize', makeFarRanges);
+
+// jagged silhouette for the main mountain's two slopes (rock, not a clean triangle),
+// tapering to exact points at the base corners and the peak so the fill stays sealed
+let mountainEdges = null;
+function makeMountainEdges() {
+  const m = mountainGeometry();
+  const steps = 26;
+  function side(fromX, seedBase) {
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const p = i / steps; // 0 at base corner, 1 at peak
+      const x0 = fromX + (m.peakX - fromX) * p;
+      const y0 = m.baseY + (m.peakY - m.baseY) * p;
+      const taper = Math.sin(p * Math.PI);
+      // two noise octaves - big rocky outcrops plus finer, sharper crags on top
+      const coarse = (hashRand(seedBase + Math.floor(i / 3)) - 0.5) * 2;
+      const fine = (hashRand(seedBase + 500 + i) - 0.5) * 2;
+      const amp = 30 * taper;
+      const jitter = coarse * 0.7 + fine * 0.3;
+      pts.push({ x: x0 + jitter * amp, y: y0 - Math.abs(jitter) * amp * 0.3, p });
+    }
+    return pts;
+  }
+  mountainEdges = { left: side(m.baseLeftX, 1), right: side(m.baseRightX, 50) };
+}
+makeMountainEdges();
+addEventListener('resize', makeMountainEdges);
+
+// finds the point on a jagged edge at a given climb fraction, interpolating between
+// the two nearest generated points
+function edgePointAt(pts, targetP) {
+  for (let i = 0; i < pts.length - 1; i++) {
+    if (pts[i].p <= targetP && pts[i + 1].p >= targetP) {
+      const span = pts[i + 1].p - pts[i].p || 1;
+      const f = (targetP - pts[i].p) / span;
+      return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * f, y: pts[i].y + (pts[i + 1].y - pts[i].y) * f };
+    }
+  }
+  return pts[pts.length - 1];
+}
+
+// gently falling snow, drifting down with a light sideways sway - drawn last, in
+// front of everything, since falling snow reads as the closest layer to the viewer
+let snowflakes = [];
+function makeSnowflakes() {
+  snowflakes = Array.from({ length: 45 }, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    r: Math.random() * 1.6 + 0.6,
+    speed: Math.random() * 14 + 8,
+    sway: Math.random() * Math.PI * 2,
+    swaySpeed: Math.random() * 0.6 + 0.3,
+  }));
+}
+makeSnowflakes();
+addEventListener('resize', makeSnowflakes);
+
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws;
 
@@ -120,8 +205,11 @@ function connect() {
 }
 connect();
 
+let lastFrameTs = Date.now();
 function draw() {
   const now = Date.now();
+  const dt = Math.min((now - lastFrameTs) / 1000, 0.1);
+  lastFrameTs = now;
   const t = now / 1000;
 
   // night sky gradient
@@ -142,16 +230,28 @@ function draw() {
   }
   ctx.globalAlpha = 1;
 
-  // the mystical mountain everyone climbs
+  // distant ridgelines behind the main peak, faded with atmospheric haze
+  for (const range of farRanges) {
+    ctx.fillStyle = range.color;
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height);
+    ctx.lineTo(0, range.points[0].y);
+    for (const pt of range.points) ctx.lineTo(pt.x, pt.y);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // the mystical mountain everyone climbs, as a jagged rock silhouette
   const m = mountainGeometry();
   const rock = ctx.createLinearGradient(0, m.peakY, 0, m.baseY);
   rock.addColorStop(0, '#2a2350');
   rock.addColorStop(1, '#171233');
   ctx.fillStyle = rock;
   ctx.beginPath();
-  ctx.moveTo(m.baseLeftX, m.baseY);
-  ctx.lineTo(m.peakX, m.peakY);
-  ctx.lineTo(m.baseRightX, m.baseY);
+  ctx.moveTo(mountainEdges.left[0].x, mountainEdges.left[0].y);
+  for (const pt of mountainEdges.left) ctx.lineTo(pt.x, pt.y);
+  for (let i = mountainEdges.right.length - 1; i >= 0; i--) ctx.lineTo(mountainEdges.right[i].x, mountainEdges.right[i].y);
   ctx.closePath();
   ctx.fill();
   // a soft mystical glow at the peak
@@ -162,14 +262,57 @@ function draw() {
   ctx.beginPath();
   ctx.arc(m.peakX, m.peakY, 90, 0, Math.PI * 2);
   ctx.fill();
-  // snow cap
-  ctx.fillStyle = 'rgba(230,225,245,0.9)';
+
+  // snow cap: a real one only covers the upper slope, and its lower edge is a
+  // wavy, irregular line - never a single flat cut across the mountain
+  const snowStart = 0.8;
+  const leftSnowPts = mountainEdges.left.filter((p) => p.p >= snowStart);
+  const rightSnowPts = mountainEdges.right.filter((p) => p.p >= snowStart);
+  const leftSnowBase = edgePointAt(mountainEdges.left, snowStart);
+  const rightSnowBase = edgePointAt(mountainEdges.right, snowStart);
+  const snowlineSteps = 5;
+  const snowlinePts = [];
+  for (let i = 1; i < snowlineSteps; i++) {
+    const laneFrac = i / snowlineSteps;
+    const wobble = (hashRand(300 + i) - 0.5) * 0.22;
+    snowlinePts.push(pointOnMountain(laneFrac, snowStart + wobble));
+  }
+  const snowGrad = ctx.createLinearGradient(0, m.peakY, 0, leftSnowBase.y);
+  snowGrad.addColorStop(0, 'rgba(255,255,255,0.95)');
+  snowGrad.addColorStop(1, 'rgba(210,205,235,0.75)');
+  ctx.fillStyle = snowGrad;
   ctx.beginPath();
-  ctx.moveTo(m.peakX, m.peakY);
-  ctx.lineTo(m.peakX - 22, m.peakY + 34);
-  ctx.lineTo(m.peakX + 22, m.peakY + 34);
+  ctx.moveTo(leftSnowBase.x, leftSnowBase.y);
+  for (const pt of leftSnowPts) ctx.lineTo(pt.x, pt.y);
+  for (let i = rightSnowPts.length - 1; i >= 0; i--) ctx.lineTo(rightSnowPts[i].x, rightSnowPts[i].y);
+  ctx.lineTo(rightSnowBase.x, rightSnowBase.y);
+  for (let i = snowlinePts.length - 1; i >= 0; i--) ctx.lineTo(snowlinePts[i].x, snowlinePts[i].y);
+  ctx.lineTo(leftSnowBase.x, leftSnowBase.y);
   ctx.closePath();
   ctx.fill();
+  // shadowed crevices in the snow for a little texture
+  ctx.strokeStyle = 'rgba(120,108,175,0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  [-1, 1].forEach((side) => {
+    ctx.beginPath();
+    ctx.moveTo(m.peakX + side * 8, m.peakY + 14);
+    ctx.lineTo(m.peakX + side * 30, leftSnowBase.y - 6);
+    ctx.stroke();
+  });
+  // snow streaks trailing further down into the rock, like couloirs
+  ctx.fillStyle = 'rgba(220,215,240,0.22)';
+  [0.42, 0.58].forEach((laneFrac) => {
+    const top = pointOnMountain(laneFrac, snowStart);
+    const bottom = pointOnMountain(laneFrac, snowStart - 0.2);
+    ctx.beginPath();
+    ctx.moveTo(top.x - 5, top.y);
+    ctx.lineTo(top.x + 5, top.y);
+    ctx.lineTo(bottom.x + 1.5, bottom.y);
+    ctx.lineTo(bottom.x - 1.5, bottom.y);
+    ctx.closePath();
+    ctx.fill();
+  });
 
   // rocky facets for texture, so it reads as rock rather than a flat triangle
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
@@ -227,9 +370,9 @@ function draw() {
       const dirY = upDy / upLen;
       const facingLeft = dirX < 0;
 
-      const speed = 1.3;
+      const speed = 0.6; // a real plodding climb, not a jitter
       const walkPhase = t * speed + s.phase;
-      const wobble = Math.sin(walkPhase) * 4; // just a little life, not real wandering
+      const wobble = Math.sin(walkPhase) * 3; // just a little life, not real wandering
       const px = base.x + wobble;
       const groundY = base.y;
       s.lastPx = px;
@@ -310,7 +453,7 @@ function draw() {
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       for (const legOffset of [0, Math.PI]) {
-        const swing = Math.sin(walkPhase * 6 + legOffset) * 0.6;
+        const swing = Math.sin(walkPhase * 3 + legOffset) * 0.5;
         const hipY = -legL;
         const footX = Math.sin(swing) * legL;
         const footY = hipY + Math.cos(swing) * legL;
@@ -324,7 +467,7 @@ function draw() {
 
       // wing on its back - a gentle idle flap all the time, plus an excited flurry
       // right after a tool call, so it visibly reacts to what it's doing
-      const idleFlap = Math.sin(walkPhase * 3) * 0.15;
+      const idleFlap = Math.sin(t * 2.4 + s.phase) * 0.15;
       const excitedFlap = pulseAge < 500 ? Math.sin(pulseAge * 0.05) * 0.7 * (1 - pulseAge / 500) : 0;
       ctx.save();
       ctx.translate(-bodyR * 0.55, bodyCy + bodyR * 0.1);
@@ -412,6 +555,23 @@ function draw() {
       ctx.globalAlpha = 1;
     }
   }
+
+  // falling snow, drawn last so it sits in front of the whole scene
+  ctx.fillStyle = '#fff';
+  for (const f of snowflakes) {
+    f.y += f.speed * dt;
+    f.x += Math.sin(t * f.swaySpeed + f.sway) * 6 * dt;
+    if (f.y > canvas.height + 4) {
+      f.y = -4;
+      f.x = Math.random() * canvas.width;
+    }
+    ctx.globalAlpha = 0.3 + 0.35 * Math.abs(Math.sin(t * 1.3 + f.sway));
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
   requestAnimationFrame(draw);
 }
 draw();
