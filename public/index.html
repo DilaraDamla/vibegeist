@@ -46,26 +46,18 @@ function freshSession(x, y) {
   return { x, y, state: 'alive', since: Date.now(), phase: Math.random() * Math.PI * 2, stack: 0 };
 }
 
-// --- background world: sky, stars, ground, and a graveyard that fills up over time ---
-const GRAVEYARD_H = 64;
+// --- background world: night sky, twinkling stars, a thin ground line ---
 let stars = [];
 function makeStars() {
-  const skyH = Math.max(0, canvas.height - GRAVEYARD_H);
   stars = Array.from({ length: 40 }, () => ({
     x: Math.random() * canvas.width,
-    y: Math.random() * skyH * 0.8,
+    y: Math.random() * canvas.height * 0.8,
     r: Math.random() * 1.3 + 0.3,
     twinkle: Math.random() * Math.PI * 2,
   }));
 }
 makeStars();
 addEventListener('resize', makeStars);
-
-const TOMBSTONE_SIZE = 22;
-let graveyardCount = 0;
-function graveyardCols() {
-  return Math.max(4, Math.floor((canvas.width - 20) / TOMBSTONE_SIZE));
-}
 
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws;
@@ -89,10 +81,7 @@ function connect() {
       if (s) { s.state = 'ghost'; s.since = Date.now(); }
       ghostsToday = msg.ghostsToday ?? ghostsToday + 1;
       ghostsAllTime = msg.ghostsAllTime ?? ghostsAllTime + 1;
-      setTimeout(() => {
-        sessions.delete(msg.id);
-        graveyardCount++;
-      }, 3000);
+      setTimeout(() => sessions.delete(msg.id), 3000);
     } else if (msg.type === 'leave') {
       sessions.delete(msg.id);
     }
@@ -105,14 +94,13 @@ connect();
 function draw() {
   const now = Date.now();
   const t = now / 1000;
-  const skyH = Math.max(0, canvas.height - GRAVEYARD_H);
 
-  // sky gradient
-  const sky = ctx.createLinearGradient(0, 0, 0, skyH);
+  // night sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
   sky.addColorStop(0, '#0a0714');
   sky.addColorStop(1, '#151129');
   ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, canvas.width, skyH);
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // stars, gently twinkling
   for (const star of stars) {
@@ -125,46 +113,26 @@ function draw() {
   }
   ctx.globalAlpha = 1;
 
-  // a thin grass line where the field meets the graveyard
+  // a thin grass line along the bottom - just ground, no graveyard
   ctx.fillStyle = '#1f3d2a';
-  ctx.fillRect(0, skyH - 3, canvas.width, 3);
+  ctx.fillRect(0, canvas.height - 3, canvas.width, 3);
 
-  // graveyard band
-  ctx.fillStyle = '#171018';
-  ctx.fillRect(0, skyH, canvas.width, GRAVEYARD_H);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const cols = graveyardCols();
-  const rows = Math.max(1, Math.floor((GRAVEYARD_H - 8) / TOMBSTONE_SIZE));
-  const maxTombstones = cols * rows;
-  const shown = Math.min(graveyardCount, maxTombstones);
-  ctx.font = `${TOMBSTONE_SIZE - 4}px sans-serif`;
-  ctx.globalAlpha = 0.85;
-  for (let i = 0; i < shown; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const gx = 14 + col * TOMBSTONE_SIZE;
-    const gy = skyH + 16 + row * TOMBSTONE_SIZE;
-    ctx.fillText('🪦', gx, gy);
-  }
-  ctx.globalAlpha = 1;
 
   for (const [, s] of sessions) {
     const homeX = 50 + s.x * (canvas.width - 100);
-    const homeY = 40 + s.y * (skyH - 80);
+    const homeY = 40 + s.y * (canvas.height - 80);
 
     if (s.state === 'alive') {
-      // pace back and forth on a fixed ground line - deliberately NO vertical motion at all.
-      // Any up/down bob on a single static emoji (no leg-frame animation) reads as hopping/
-      // jumping, not walking. The only thing that reads as "walking" here is a body that
-      // rocks side to side (waddle) while it translates, pivoting near its feet.
+      // pace back and forth on a fixed ground line - the body itself doesn't bob or
+      // rock at all; only the procedurally-drawn legs (below) actually move.
       const speed = 1.3;
       const walkPhase = t * speed + s.phase;
       const wx = Math.sin(walkPhase) * 46;
       const facingLeft = Math.cos(walkPhase) < 0; // direction of travel
       const px = homeX + wx;
       const groundY = homeY;
-      const waddle = Math.sin(walkPhase * 4) * 0.22;
 
       const pulseAge = s.pulse ? now - s.pulse : 9999;
       const bump = pulseAge < 400 ? 8 * (1 - pulseAge / 400) : 0;
@@ -186,23 +154,69 @@ function draw() {
         ctx.fillText('🧱', homeX + 26, groundY - 4 - i * 13 - topBump);
       }
 
+      // a hand-drawn chick instead of a static emoji, so the legs can actually swing -
+      // no emoji glyph has walk-cycle frames, which is why every emoji-based attempt
+      // at "walking" kept reading as sliding, hopping, or swaying instead.
       const hue = Math.floor((s.phase / (Math.PI * 2)) * 360);
-      const feetOffset = 13; // pivot the rock near the feet, not the belly, so it reads as rocking on its legs
+      const bodyColor = `hsl(${hue}, 75%, 68%)`;
+      const beakColor = `hsl(${(hue + 30) % 360}, 90%, 55%)`;
+      const legL = 8;
+      const bodyR = 8 + bump * 0.3;
+
       ctx.save();
-      ctx.translate(px, groundY + feetOffset);
-      ctx.rotate(waddle);
+      ctx.translate(px, groundY);
       if (facingLeft) ctx.scale(-1, 1);
-      ctx.filter = `hue-rotate(${hue}deg) saturate(1.4)`;
-      ctx.font = `${26 + bump}px sans-serif`;
-      ctx.fillText('🐤', 0, -feetOffset);
-      ctx.filter = 'none';
+
+      // legs: two lines swinging in opposite phase - a real scissor gait, not a fake one
+      ctx.strokeStyle = beakColor;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      for (const legOffset of [0, Math.PI]) {
+        const swing = Math.sin(walkPhase * 6 + legOffset) * 0.6;
+        const hipY = -legL;
+        const footX = Math.sin(swing) * legL;
+        const footY = hipY + Math.cos(swing) * legL;
+        ctx.beginPath();
+        ctx.moveTo(0, hipY);
+        ctx.lineTo(footX, footY);
+        ctx.stroke();
+      }
+
+      // body
+      const bodyCy = -legL - bodyR * 0.7;
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath();
+      ctx.ellipse(0, bodyCy, bodyR, bodyR * 0.85, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // beak, pointing the way it's facing
+      ctx.fillStyle = beakColor;
+      ctx.beginPath();
+      ctx.moveTo(bodyR * 0.7, bodyCy - bodyR * 0.15);
+      ctx.lineTo(bodyR * 0.7 + 5, bodyCy - bodyR * 0.3);
+      ctx.lineTo(bodyR * 0.7 + 5, bodyCy);
+      ctx.closePath();
+      ctx.fill();
+
+      // eye
+      ctx.fillStyle = '#20140a';
+      ctx.beginPath();
+      ctx.arc(bodyR * 0.25, bodyCy - bodyR * 0.4, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+
       ctx.restore();
     } else {
+      // upside-down, gently swaying as it drifts up and fades away - a spirit, not a jump
       const age = now - s.since;
       const drift = Math.min(age / 3000, 1);
+      const sway = Math.sin(t * 2 + s.phase) * 10;
       ctx.globalAlpha = 1 - drift;
+      ctx.save();
+      ctx.translate(homeX + sway, homeY - drift * 70);
+      ctx.rotate(Math.PI);
       ctx.font = '26px sans-serif';
-      ctx.fillText('👻', homeX, homeY - drift * 60);
+      ctx.fillText('👻', 0, 0);
+      ctx.restore();
       ctx.globalAlpha = 1;
     }
   }
