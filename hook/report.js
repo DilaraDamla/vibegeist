@@ -10,7 +10,10 @@ let input = '';
 process.stdin.on('data', (chunk) => (input += chunk));
 process.stdin.on('end', async () => {
   try {
-    const payload = JSON.parse(input || '{}');
+    // PowerShell prepends a UTF-8 BOM when piping text into a child process's
+    // stdin - strip it, or JSON.parse throws and the whole event is silently lost
+    const clean = input.replace(/^﻿/, '').trim();
+    const payload = JSON.parse(clean || '{}');
     const sessionId = payload.session_id;
     if (!sessionId || !EVENT_TYPE) return;
 
