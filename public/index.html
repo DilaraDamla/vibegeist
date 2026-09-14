@@ -102,7 +102,6 @@ function connect() {
       const s = sessions.get(msg.id);
       if (s) {
         s.pulse = Date.now();
-        s.stack = Math.min((s.stack || 0) + 1, 8);
         // every tool call climbs a little higher - bigger prompts reach higher up the mountain
         s.climbTarget = Math.min((s.climbTarget || 0) + 0.07, 1);
       }
@@ -172,6 +171,38 @@ function draw() {
   ctx.closePath();
   ctx.fill();
 
+  // rocky facets for texture, so it reads as rock rather than a flat triangle
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.moveTo(m.peakX, m.peakY + 30);
+  ctx.lineTo(m.peakX - 60, m.baseY - 40);
+  ctx.lineTo(m.peakX - 20, m.baseY - 40);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.beginPath();
+  ctx.moveTo(m.peakX, m.peakY + 20);
+  ctx.lineTo(m.peakX + 90, m.baseY - 10);
+  ctx.lineTo(m.peakX + 30, m.baseY - 10);
+  ctx.closePath();
+  ctx.fill();
+
+  // a winding path up the slope
+  ctx.strokeStyle = 'rgba(230,225,245,0.18)';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([6, 8]);
+  ctx.beginPath();
+  ctx.moveTo(m.peakX, m.peakY + 30);
+  const pathSteps = 5;
+  for (let i = 1; i <= pathSteps; i++) {
+    const p = i / pathSteps;
+    const wiggle = Math.sin(p * 6) * 26 * p;
+    const pt = pointOnMountain(0.5, 1 - p);
+    ctx.lineTo(pt.x + wiggle, pt.y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -186,11 +217,19 @@ function draw() {
       }
 
       const base = pointOnMountain(s.x, s.climbed);
-      // a little side-to-side wobble while climbing, on top of the lane position
+      // uphill direction at this point on the slope - the chick always faces and
+      // leans into this, since it's pushing something up it, not wandering freely
+      const ahead = pointOnMountain(s.x, Math.min(s.climbed + 0.05, 1));
+      const upDx = ahead.x - base.x;
+      const upDy = ahead.y - base.y;
+      const upLen = Math.hypot(upDx, upDy) || 1;
+      const dirX = upDx / upLen;
+      const dirY = upDy / upLen;
+      const facingLeft = dirX < 0;
+
       const speed = 1.3;
       const walkPhase = t * speed + s.phase;
-      const wobble = Math.sin(walkPhase) * 10;
-      const facingLeft = Math.cos(walkPhase) < 0;
+      const wobble = Math.sin(walkPhase) * 4; // just a little life, not real wandering
       const px = base.x + wobble;
       const groundY = base.y;
       s.lastPx = px;
@@ -207,14 +246,39 @@ function draw() {
       ctx.fill();
       ctx.globalAlpha = 1;
 
-      // stack of bricks growing beside it, one per tool call, most recent on top
-      const stack = s.stack || 0;
-      for (let i = 0; i < stack; i++) {
-        const isTop = i === stack - 1;
-        const topBump = isTop && pulseAge < 400 ? 4 * (1 - pulseAge / 400) : 0;
-        ctx.font = `${14 + topBump}px sans-serif`;
-        ctx.fillText('🧱', px + 26, groundY - 4 - i * 13 - topBump);
-      }
+      // the orb it's pushing up the mountain, just uphill of it - a real Sisyphean boulder,
+      // one per chick, that rolls (visibly rotating facets) as climb progress accumulates
+      const orbDist = 20;
+      const orbR = 7 + s.climbed * 5;
+      const orbX = px + dirX * orbDist;
+      const orbY = groundY + dirY * orbDist - orbR * 0.6;
+      const hue0 = Math.floor((s.phase / (Math.PI * 2)) * 360);
+      ctx.save();
+      ctx.translate(orbX, orbY);
+      ctx.rotate(s.climbed * 22 + walkPhase);
+      const orbGrad = ctx.createRadialGradient(-orbR * 0.3, -orbR * 0.3, 0, 0, 0, orbR);
+      orbGrad.addColorStop(0, `hsl(${hue0}, 90%, 82%)`);
+      orbGrad.addColorStop(1, `hsl(${hue0}, 70%, 45%)`);
+      ctx.fillStyle = orbGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, orbR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-orbR, 0);
+      ctx.lineTo(orbR, 0);
+      ctx.moveTo(0, -orbR);
+      ctx.lineTo(0, orbR);
+      ctx.stroke();
+      ctx.restore();
+      // shadow under the orb
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.ellipse(orbX, groundY + dirY * orbDist + 10, orbR * 0.8, orbR * 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
 
       // a hand-drawn chick instead of a static emoji, so the legs can actually swing -
       // no emoji glyph has walk-cycle frames, which is why every emoji-based attempt
@@ -227,7 +291,19 @@ function draw() {
 
       ctx.save();
       ctx.translate(px, groundY);
+      // lean forward into the push, before mirroring - defined in "facing right" space
+      // so it always tips toward the orb no matter which way it's mirrored
+      ctx.rotate(0.22);
       if (facingLeft) ctx.scale(-1, 1);
+
+      // pushing arms reaching toward the orb it's rolling uphill
+      ctx.strokeStyle = beakColor;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bodyR * 0.3, -legL - bodyR * 0.9);
+      ctx.lineTo(bodyR * 1.6, -legL - bodyR * 1.1);
+      ctx.stroke();
 
       // legs: two lines swinging in opposite phase - a real scissor gait, not a fake one
       ctx.strokeStyle = beakColor;
