@@ -1,15 +1,19 @@
 # vibegeist
 
-A shared ambient world where every Claude Code session that finishes becomes a ghost.
+A shared ambient world where every Claude Code turn climbs a mountain.
 
 No chat, no accounts, no user-generated content. Your Claude Code hooks send three
 anonymous, hashed pings to a server: **join** (a turn starts), **activity**
 (a tool ran), **ghost** (a turn ends). The browser page turns that into little
-chicks that pace around and stack bricks while you work, then drift upward into
-ghosts when done — alongside everyone else in the world right now.
+chicks that spawn at a campfire, take up a glowing sphere, and carry it up a
+route past a forest, a rope bridge, a waterfall, a cave, a rocky ridge, and a
+ruined temple. Each tool-use call nudges them further along. When your turn
+finishes, the chick dashes to the summit, sets the sphere down in a burst of
+light — it dissolves into the peak's own glow — and rises away as a drifting
+spirit, alongside everyone else climbing right now.
 
 Note that Claude Code's `Stop` hook fires at the end of every turn, not just
-when you close the whole session — so a chick is really "one turn," and a
+when you close the whole session — so a climb is really "one turn," and a
 `UserPromptSubmit` hook re-joins it the instant you send your next message
 (rather than waiting for its first tool call) so it doesn't sit dead in
 between. This also means `ghostsToday`/`ghostsAllTime` count turns, not
@@ -30,8 +34,8 @@ Add the hooks from `hook/settings.snippet.json` to your `~/.claude/settings.json
 
 Then open `/hooks` once inside Claude Code to reload the config.
 
-Every turn you run will now show up as a chick in the shared world, and turn
-into a ghost the moment it finishes.
+Every turn you run will now show up as a chick climbing the shared mountain,
+and rise away as a spirit the moment it finishes.
 
 ## Run your own world instead
 
@@ -53,7 +57,7 @@ npm run notify
 ```
 
 Leave this running in the background and you'll get a Windows notification
-whenever a ghost rises or a new chick joins — no browser tab required.
+whenever a spirit rises or a new chick joins — no browser tab required.
 
 ## Privacy
 
@@ -75,9 +79,14 @@ no prompts — nothing that identifies you or your project ever leaves your mach
   `settings.json`.
 - `notifier/watch.js` — connects to the world's WebSocket feed and pops a native
   OS notification on join/ghost events, so you don't need a tab open at all.
-- `public/index.html` — the world itself: a canvas, a WebSocket client, a
-  Picture-in-Picture "widget" mode, no framework. Served as static assets by
-  the Worker, or by `server/index.js` locally.
+- `public/index.html` + `public/js/` — the world itself: a canvas, a WebSocket
+  client, a Picture-in-Picture "widget" mode (a compact one-sided ascending
+  view, distinct from the main page's symmetric diorama), no framework.
+  `task.js` is the state machine for one climb (arrive → climb → summit →
+  place → ascend); `route.js`, `mountain.js`, and `waypoints.js` draw the
+  fixed geography every task walks through; `chick.js`, `orb.js`, and
+  `spirit.js` draw the three things a task looks like at each stage. Served
+  as static assets by the Worker, or by `server/index.js` locally.
 
 ## Status
 
