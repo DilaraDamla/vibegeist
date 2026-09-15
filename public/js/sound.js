@@ -68,24 +68,60 @@ export class SoundEngine {
     });
   }
 
-  // a quick staccato square-wave run when a task reaches the summit - a
-  // Mario-style "power-up" fanfare, echoing the visual dash-and-rise
+  // a "ta-ta-ta-TAAA" fanfare when a task reaches the summit: three quick
+  // rising hits, then a held, lightly-vibrato'd open chord - a plain
+  // ascending run didn't read as an arrival, just more of the same blip
   playSummit(hue) {
     if (!this.enabled) return;
     const ctx = this.ctx;
     const t0 = ctx.currentTime;
     const root = noteForHue(hue);
-    [1, 1.25, 1.5, 2, 2.5, 3].forEach((mult, i) => {
+
+    [
+      { mult: 1, start: 0 },
+      { mult: 1.26, start: 0.09 },
+      { mult: 1.5, start: 0.18 },
+    ].forEach(({ mult, start }) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'square';
       osc.frequency.value = root * mult;
-      const start = t0 + i * 0.05;
-      gain.gain.setValueAtTime(0.045, start);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.09);
+      const s = t0 + start;
+      gain.gain.setValueAtTime(0.05, s);
+      gain.gain.exponentialRampToValueAtTime(0.0001, s + 0.08);
       osc.connect(gain).connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.1);
+      osc.start(s);
+      osc.stop(s + 0.1);
+    });
+
+    // the held finish: an open octave-plus-fifth chord with a touch of
+    // vibrato, so it shimmers instead of just cutting off
+    const finishStart = t0 + 0.3;
+    const finishDur = 0.5;
+    [
+      { mult: 2, type: 'square' },
+      { mult: 3, type: 'triangle' },
+    ].forEach(({ mult, type }) => {
+      const freq = root * mult;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+
+      const vibrato = ctx.createOscillator();
+      vibrato.frequency.value = 6;
+      const vibratoGain = ctx.createGain();
+      vibratoGain.gain.value = freq * 0.01;
+      vibrato.connect(vibratoGain).connect(osc.frequency);
+      vibrato.start(finishStart);
+      vibrato.stop(finishStart + finishDur);
+
+      gain.gain.setValueAtTime(0, finishStart);
+      gain.gain.linearRampToValueAtTime(0.06, finishStart + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, finishStart + finishDur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(finishStart);
+      osc.stop(finishStart + finishDur + 0.02);
     });
   }
 
