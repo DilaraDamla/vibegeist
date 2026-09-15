@@ -6,6 +6,7 @@ import { WidgetScene } from './widgetScene.js';
 import { Task } from './task.js';
 import { NetworkClient } from './network.js';
 import { SoundEngine } from './sound.js';
+import { drawGravestone } from './gravestone.js';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -51,6 +52,10 @@ addEventListener('resize', resizeAll);
 
 const tasks = new Map(); // id -> Task
 const prevClimbed = new Map(); // id -> last frame's climbed, racing tasks only - for overtake detection
+// markers left where an abandoned (never-finished) task's session went
+// stale - client-side only, so they reset on reload, same as `tasks` itself
+// (which also only reflects the current session's snapshot, not history)
+const gravestones = [];
 let ghostsToday = 0;
 let ghostsAllTime = 0;
 
@@ -86,6 +91,12 @@ new NetworkClient((msg) => {
     ghostsToday = msg.ghostsToday ?? ghostsToday + 1;
     ghostsAllTime = msg.ghostsAllTime ?? ghostsAllTime + 1;
   } else if (msg.type === 'leave') {
+    const task = tasks.get(msg.id);
+    // only a task that never reached the summit gets a marker - a normal
+    // completion already has its own summit + rising-spirit ending
+    if (task && task.state !== 'placing' && task.state !== 'ascending') {
+      gravestones.push({ x: task.lastX, y: task.lastY, hue: task.chickHue });
+    }
     tasks.delete(msg.id);
   }
   updateHud();
@@ -110,6 +121,7 @@ function draw() {
     scene.drawFarRanges(ctx);
     mountain.draw(ctx);
     waypoints.draw(ctx, t, dt);
+    for (const g of gravestones) drawGravestone(ctx, g.x, g.y, g.hue);
   }
 
   ctx.textAlign = 'center';
