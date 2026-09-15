@@ -13,11 +13,34 @@ function noteForHue(hue) {
   return SCALE[idx];
 }
 
+// a short, bouncy background tune - indices into SCALE, each with its own
+// beat length, looped continuously while sound is on. Triangle wave (not
+// the event sounds' square) so it sits underneath them, softer and sweeter
+// rather than competing for the same bright timbre.
+const MELODY = [
+  { i: 4, d: 0.24 },
+  { i: 5, d: 0.24 },
+  { i: 6, d: 0.24 },
+  { i: 5, d: 0.24 },
+  { i: 4, d: 0.24 },
+  { i: 2, d: 0.24 },
+  { i: 4, d: 0.48 },
+  { i: 3, d: 0.24 },
+  { i: 4, d: 0.24 },
+  { i: 5, d: 0.24 },
+  { i: 3, d: 0.24 },
+  { i: 2, d: 0.24 },
+  { i: 0, d: 0.24 },
+  { i: 2, d: 0.48 },
+];
+const MELODY_LOOP_MS = MELODY.reduce((sum, n) => sum + n.d, 0) * 1000;
+
 export class SoundEngine {
   constructor() {
     this.ctx = null;
     this.enabled = false;
     this._ambient = null;
+    this._musicTimer = null;
   }
 
   toggle() {
@@ -32,15 +55,47 @@ export class SoundEngine {
     this.ctx.resume?.();
     this.enabled = true;
     this._startAmbient();
+    this._scheduleMelodyLoop();
   }
 
   disable() {
     if (!this.enabled) return;
     this.enabled = false;
     this._stopAmbient();
+    if (this._musicTimer) clearTimeout(this._musicTimer);
+    this._musicTimer = null;
     const ctx = this.ctx;
     this.ctx = null;
     ctx.close().catch(() => {});
+  }
+
+  // schedules one loop of MELODY up front (it's short), then re-arms itself
+  // via a plain timeout for the next loop - simple and drift-free enough at
+  // this length, no need for a lookahead scheduler
+  _scheduleMelodyLoop() {
+    const ctx = this.ctx;
+    const bus = ctx.createGain();
+    bus.gain.value = 0.035;
+    bus.connect(ctx.destination);
+
+    let when = ctx.currentTime + 0.05;
+    for (const note of MELODY) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = SCALE[note.i];
+      gain.gain.setValueAtTime(0, when);
+      gain.gain.linearRampToValueAtTime(1, when + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, when + note.d * 0.9);
+      osc.connect(gain).connect(bus);
+      osc.start(when);
+      osc.stop(when + note.d);
+      when += note.d;
+    }
+
+    this._musicTimer = setTimeout(() => {
+      if (this.enabled) this._scheduleMelodyLoop();
+    }, MELODY_LOOP_MS);
   }
 
   // a bright chiptune "coin" blip when a new chick joins the climb - a
