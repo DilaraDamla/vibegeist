@@ -5,7 +5,7 @@ import { drawAccessory } from './accessories.js';
 // at "walking" kept reading as sliding, hopping, or swaying instead.
 //
 // opts: { bodyR, hue, walkPhase, facingLeft, bump, armsRaised, pushing, strain,
-// reachToward, accessory }
+// reachToward, accessory, isLeader }
 // reachToward: {x,y} in the chick's local "facing right" space to reach an arm
 // (or, while pushing, both arms) toward the sphere, or null for a relaxed arm.
 export function drawChick(ctx, px, groundY, opts) {
@@ -20,6 +20,7 @@ export function drawChick(ctx, px, groundY, opts) {
     strain = 0,
     reachToward = null,
     accessory = null,
+    isLeader = false,
     t = 0,
   } = opts;
   const bodyColor = `hsl(${hue}, 62%, 72%)`;
@@ -146,6 +147,32 @@ export function drawChick(ctx, px, groundY, opts) {
   ctx.fill();
 
   if (accessory) drawAccessory(ctx, accessory, bodyR, bodyCy, hue, t);
+
+  // leader crown: whoever is furthest along the climb gets this, so "who's
+  // winning" reads at a glance without any text - a small gold zigzag with
+  // a gem, floating just above the head tuft where no accessory ever sits
+  if (isLeader) {
+    const cy = bodyCy - bodyR * 1.35 - Math.sin(t * 3) * bodyR * 0.06;
+    const cw = bodyR * 0.5;
+    ctx.fillStyle = '#ffd54a';
+    ctx.beginPath();
+    ctx.moveTo(-cw, cy + bodyR * 0.22);
+    ctx.lineTo(-cw, cy - bodyR * 0.05);
+    ctx.lineTo(-cw * 0.5, cy + bodyR * 0.12);
+    ctx.lineTo(0, cy - bodyR * 0.2);
+    ctx.lineTo(cw * 0.5, cy + bodyR * 0.12);
+    ctx.lineTo(cw, cy - bodyR * 0.05);
+    ctx.lineTo(cw, cy + bodyR * 0.22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110,75,10,0.6)';
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+    ctx.fillStyle = '#ff5f6d';
+    ctx.beginPath();
+    ctx.arc(0, cy - bodyR * 0.12, bodyR * 0.11, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   ctx.restore();
 

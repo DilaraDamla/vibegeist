@@ -117,11 +117,28 @@ function draw() {
   const activeRoute = pipActive ? sideRoute : route;
   // back-to-front by ground height, so overlapping chicks stack sensibly
   const ordered = [...tasks.values()].sort((a, b) => a.lastY - b.lastY);
+  for (const task of ordered) task.update(dt, now, activeRoute);
+
+  // whoever is furthest along gets a crown - only meaningful with an actual
+  // race (2+ still-climbing tasks), never for a lone chick
+  let leaderId = null;
+  let leaderClimbed = -1;
+  let racingCount = 0;
+  for (const task of ordered) {
+    if (task.state === 'ascending') continue;
+    racingCount++;
+    if (task.climbed > leaderClimbed) {
+      leaderClimbed = task.climbed;
+      leaderId = task.id;
+    }
+  }
+  const showLeader = racingCount > 1;
+
   let removedAny = false;
   for (const task of ordered) {
-    task.update(dt, now, activeRoute);
-    if (pipActive) task.drawProgress(ctx, activeRoute, t, now);
-    else task.draw(ctx, activeRoute, t, now);
+    const isLeader = showLeader && task.id === leaderId;
+    if (pipActive) task.drawProgress(ctx, activeRoute, t, now, isLeader);
+    else task.draw(ctx, activeRoute, t, now, isLeader);
     if (task.finished) removedAny = true;
   }
   if (removedAny) {

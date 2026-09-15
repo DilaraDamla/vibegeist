@@ -109,10 +109,10 @@ export class Task {
     }
   }
 
-  draw(ctx, route, t, now) {
-    if (this.state === 'arriving') this.drawArriving(ctx, route, t);
-    else if (this.state === 'climbing' || this.state === 'summiting') this.drawClimbing(ctx, route, t, now);
-    else if (this.state === 'placing') this.drawPlacing(ctx, route, t, now);
+  draw(ctx, route, t, now, isLeader = false) {
+    if (this.state === 'arriving') this.drawArriving(ctx, route, t, isLeader);
+    else if (this.state === 'climbing' || this.state === 'summiting') this.drawClimbing(ctx, route, t, now, isLeader);
+    else if (this.state === 'placing') this.drawPlacing(ctx, route, t, now, isLeader);
     else if (this.state === 'ascending') this.drawAscending(ctx, t, now);
   }
 
@@ -120,7 +120,7 @@ export class Task {
   // main page, reused at a smaller scale with the extra dust/marker effects
   // dropped - the widget should read as the same world zoomed out, not a
   // separate abstract progress indicator.
-  drawProgress(ctx, route, t, now) {
+  drawProgress(ctx, route, t, now, isLeader = false) {
     const scale = 0.45;
     const bodyR = BODY_R * scale;
 
@@ -159,6 +159,7 @@ export class Task {
         walkPhase,
         facingLeft: false,
         armsRaised: frac > 0.35,
+        isLeader,
         t,
       });
       return;
@@ -178,6 +179,7 @@ export class Task {
       facingLeft,
       pushing: true,
       reachToward: { x: Math.abs(groundPt.x - pos.x) * 0.45, y: orbY - pos.y },
+      isLeader,
       t,
     });
   }
@@ -196,7 +198,7 @@ export class Task {
     }
   }
 
-  drawArriving(ctx, route, t) {
+  drawArriving(ctx, route, t, isLeader = false) {
     const elapsed = Date.now() - this.since;
     const arriveFrac = Math.min(elapsed / ARRIVE_MS, 1);
     // a short walk-in within the camp itself, not an extrapolation of the
@@ -217,6 +219,7 @@ export class Task {
       facingLeft: startOffset > 1,
       idleFlap: Math.sin(t * 2.4 + this.phase) * 0.15,
       accessory: this.accessory,
+      isLeader,
       t,
     });
 
@@ -230,7 +233,7 @@ export class Task {
     }
   }
 
-  drawClimbing(ctx, route, t, now) {
+  drawClimbing(ctx, route, t, now, isLeader = false) {
     const pulseAge = this.pulse ? now - this.pulse : 9999;
     // no activity for a long stretch reads as "waiting", not broken - the
     // chick settles into place and the sphere dims rather than the world
@@ -319,11 +322,12 @@ export class Task {
       // forward-positive x since the whole chick gets mirrored as a group
       reachToward: { x: reachDX * reachFrac, y: reachDY * reachFrac },
       accessory: this.accessory,
+      isLeader,
       t,
     });
   }
 
-  drawPlacing(ctx, route, t, now) {
+  drawPlacing(ctx, route, t, now, isLeader = false) {
     const elapsed = now - this.since;
     const frac = Math.min(elapsed / PLACING_MS, 1);
     const base = route.pointAt(1, this.lateralOffset);
@@ -354,6 +358,7 @@ export class Task {
       armsRaised: frac > 0.35,
       idleFlap: Math.sin(t * 2.4 + this.phase) * 0.15,
       accessory: this.accessory,
+      isLeader,
       t,
     });
   }
