@@ -1,8 +1,9 @@
 import { hashRand } from './utils.js';
 
-// the ambient world around the mountain: night sky, twinkling stars, distant
-// ridgelines, drifting wind swirls, and falling snow. All of this keeps moving
-// regardless of whether any task is active, so the world never sits still.
+// the ambient world around the mountain: a fixed dusk sky with a low sun,
+// twinkling stars, distant ridgelines, drifting wind swirls, and falling
+// snow. All of this keeps moving regardless of whether any task is active,
+// so the world never sits still.
 export class Scene {
   constructor(canvas) {
     this.canvas = canvas;
@@ -59,9 +60,27 @@ export class Scene {
   drawSky(ctx) {
     const canvas = this.canvas;
     const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    sky.addColorStop(0, '#0a0714');
-    sky.addColorStop(1, '#151129');
+    sky.addColorStop(0, '#0d0a1f');
+    sky.addColorStop(0.35, '#2a1638');
+    sky.addColorStop(0.62, '#5c2438');
+    sky.addColorStop(0.82, '#9c3d2e');
+    sky.addColorStop(1, '#c85a2e');
     ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // a soft warm haze low in the sky - the redness of the sunset without a
+    // literal sun disc, which read as a cheap sticker rather than atmosphere
+    const haze = ctx.createRadialGradient(
+      canvas.width * 0.7,
+      canvas.height * 0.55,
+      0,
+      canvas.width * 0.7,
+      canvas.height * 0.55,
+      canvas.width * 0.55
+    );
+    haze.addColorStop(0, 'rgba(255,130,80,0.22)');
+    haze.addColorStop(1, 'rgba(255,90,60,0)');
+    ctx.fillStyle = haze;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 

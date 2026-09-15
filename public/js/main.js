@@ -5,10 +5,22 @@ import { Waypoints } from './waypoints.js';
 import { WidgetScene } from './widgetScene.js';
 import { Task } from './task.js';
 import { NetworkClient } from './network.js';
+import { SoundEngine } from './sound.js';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const hud = document.getElementById('hud');
+const soundBtn = document.getElementById('soundBtn');
+
+const soundEngine = new SoundEngine();
+function updateSoundBtn() {
+  soundBtn.textContent = soundEngine.enabled ? '🔊' : '🔇';
+  soundBtn.title = soundEngine.enabled ? 'Sesi kapat' : 'Sesi aç';
+}
+soundBtn.addEventListener('click', () => {
+  soundEngine.toggle();
+  updateSoundBtn();
+});
 
 function resize() {
   const win = canvas.ownerDocument.defaultView || window;
@@ -56,11 +68,15 @@ new NetworkClient((msg) => {
     ghostsToday = msg.ghostsToday || 0;
     ghostsAllTime = msg.ghostsAllTime || 0;
   } else if (msg.type === 'join') {
-    tasks.set(msg.id, new Task(msg.id, msg.x, msg.y * Math.PI * 2, now));
+    const task = new Task(msg.id, msg.x, msg.y * Math.PI * 2, now);
+    tasks.set(msg.id, task);
+    soundEngine.playJoin(task.orbHue);
   } else if (msg.type === 'activity') {
     tasks.get(msg.id)?.activity(now);
   } else if (msg.type === 'ghost') {
-    tasks.get(msg.id)?.complete(now);
+    const task = tasks.get(msg.id);
+    task?.complete(now);
+    if (task) soundEngine.playSummit(task.orbHue);
     ghostsToday = msg.ghostsToday ?? ghostsToday + 1;
     ghostsAllTime = msg.ghostsAllTime ?? ghostsAllTime + 1;
   } else if (msg.type === 'leave') {
@@ -130,6 +146,7 @@ pipBtn.addEventListener('click', async () => {
   }
 
   pipWindow.document.body.append(hud);
+  pipWindow.document.body.append(soundBtn);
   pipWindow.document.body.append(canvas);
   pipBtn.style.display = 'none';
   pipActive = true;
@@ -138,6 +155,7 @@ pipBtn.addEventListener('click', async () => {
 
   pipWindow.addEventListener('pagehide', () => {
     document.body.append(hud);
+    document.body.append(soundBtn);
     document.body.append(canvas);
     pipBtn.style.display = '';
     pipActive = false;

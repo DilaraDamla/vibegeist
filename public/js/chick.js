@@ -4,20 +4,35 @@ import { drawAccessory } from './accessories.js';
 // no emoji glyph has walk-cycle frames, which is why every emoji-based attempt
 // at "walking" kept reading as sliding, hopping, or swaying instead.
 //
-// opts: { bodyR, hue, walkPhase, facingLeft, bump, armsRaised, reachToward, accessory }
+// opts: { bodyR, hue, walkPhase, facingLeft, bump, armsRaised, pushing, strain,
+// reachToward, accessory }
 // reachToward: {x,y} in the chick's local "facing right" space to reach an arm
-// toward (the carried orb), or null for a relaxed arm.
+// (or, while pushing, both arms) toward the sphere, or null for a relaxed arm.
 export function drawChick(ctx, px, groundY, opts) {
-  const { bodyR, hue, walkPhase, facingLeft, bump = 0, armsRaised = false, reachToward = null, accessory = null, t = 0 } = opts;
+  const {
+    bodyR,
+    hue,
+    walkPhase,
+    facingLeft,
+    bump = 0,
+    armsRaised = false,
+    pushing = false,
+    strain = 0,
+    reachToward = null,
+    accessory = null,
+    t = 0,
+  } = opts;
   const bodyColor = `hsl(${hue}, 62%, 72%)`;
   const beakColor = `hsl(${(hue + 30) % 360}, 75%, 58%)`;
-  const legL = 8;
+  const legL = bodyR;
 
   ctx.save();
   ctx.translate(px, groundY);
   // lean forward into the climb, before mirroring - defined in "facing right"
-  // space so it always leans the same way no matter which way it's mirrored
-  ctx.rotate(armsRaised ? 0 : 0.16);
+  // space so it always leans the same way no matter which way it's mirrored.
+  // Pushing leans in hard, with a small per-stride surge as it drives into
+  // the sphere - a raised-arms celebration needs no lean at all.
+  ctx.rotate(armsRaised ? 0 : pushing ? 0.36 + strain : 0.16);
   if (facingLeft) ctx.scale(-1, 1);
 
   // legs: two lines swinging in opposite phase - a real scissor gait
@@ -51,7 +66,7 @@ export function drawChick(ctx, px, groundY, opts) {
     ctx.moveTo(-bodyR * 0.2, bodyCy - bodyR * 0.6);
     ctx.lineTo(-bodyR * 0.7, bodyCy - bodyR * 2.1);
     ctx.stroke();
-  } else if (reachToward) {
+  } else if (reachToward && !pushing) {
     ctx.beginPath();
     ctx.moveTo(bodyR * 0.3, bodyCy - bodyR * 0.2);
     ctx.lineTo(reachToward.x, reachToward.y);
@@ -76,6 +91,21 @@ export function drawChick(ctx, px, groundY, opts) {
   ctx.beginPath();
   ctx.ellipse(0, bodyCy, bodyR, bodyR * 0.85, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  // pushing arms are drawn AFTER the body, not with the other arm poses
+  // above - the reach here is short (hands braced right against the
+  // sphere), so drawing them before the body silhouette buried them
+  if (pushing && reachToward) {
+    ctx.strokeStyle = beakColor;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 2.8;
+    for (const dy of [-bodyR * 0.28, bodyR * 0.32]) {
+      ctx.beginPath();
+      ctx.moveTo(bodyR * 0.55, bodyCy + dy * 0.2);
+      ctx.lineTo(reachToward.x, reachToward.y + dy);
+      ctx.stroke();
+    }
+  }
 
   // fluffy head tuft
   ctx.strokeStyle = beakColor;
@@ -122,11 +152,11 @@ export function drawChick(ctx, px, groundY, opts) {
   return { bodyCy: groundY + bodyCy };
 }
 
-export function drawContactShadow(ctx, px, groundY) {
+export function drawContactShadow(ctx, px, groundY, scale = 1) {
   ctx.globalAlpha = 0.35;
   ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.ellipse(px, groundY + 12, 10, 3, 0, 0, Math.PI * 2);
+  ctx.ellipse(px, groundY + 12 * scale, 10 * scale, 3 * scale, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
 }

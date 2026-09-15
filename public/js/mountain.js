@@ -22,12 +22,15 @@ export class Mountain {
         const x0 = fromX + (m.peakX - fromX) * p;
         const y0 = m.baseY + (m.peakY - m.baseY) * p;
         const taper = Math.sin(p * Math.PI);
-        // two noise octaves - big rocky outcrops plus finer, sharper crags on top
-        const coarse = (hashRand(seedBase + Math.floor(i / 3)) - 0.5) * 2;
+        // three noise octaves - big rocky outcrops, sharper crags, and a fast
+        // micro-jitter on top - a single smooth octave read as a rounded
+        // hill, not a rugged rock face
+        const coarse = (hashRand(seedBase + Math.floor(i / 2)) - 0.5) * 2;
         const fine = (hashRand(seedBase + 500 + i) - 0.5) * 2;
-        const amp = 30 * taper;
-        const jitter = coarse * 0.7 + fine * 0.3;
-        pts.push({ x: x0 + jitter * amp, y: y0 - Math.abs(jitter) * amp * 0.3, p });
+        const micro = (hashRand(seedBase + 1200 + i) - 0.5) * 2;
+        const amp = 44 * taper;
+        const jitter = coarse * 0.5 + fine * 0.32 + micro * 0.18;
+        pts.push({ x: x0 + jitter * amp, y: y0 - Math.abs(jitter) * amp * 0.35, p });
       }
       return pts;
     };
@@ -43,8 +46,9 @@ export class Mountain {
       const y0 = m.baseY + (m.peakY - m.baseY) * p;
       const taper = Math.sin(p * Math.PI);
       const jitter = (hashRand(900 + i) - 0.5) * 2;
-      const amp = 16 * taper;
-      spine.push({ x: x0 + jitter * amp, y: y0 - Math.abs(jitter) * amp * 0.3, p });
+      const microJitter = (hashRand(1900 + i) - 0.5) * 2;
+      const amp = 24 * taper;
+      spine.push({ x: x0 + (jitter * 0.7 + microJitter * 0.3) * amp, y: y0 - Math.abs(jitter) * amp * 0.35, p });
     }
     this.spine = spine;
 

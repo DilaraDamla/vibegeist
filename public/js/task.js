@@ -11,6 +11,7 @@ const SUMMIT_EASE_RATE = 8.0;
 const MARKERS = [0.25, 0.5, 0.75];
 const WAIT_IDLE_MS = 20000; // no activity ping for this long reads as "waiting"
 const BURST_MS = 500;
+const BODY_R = 13; // bumped up from the original 8 so the climb reads at a glance
 
 // maps a 0..1 fraction to a "jewel tone" hue band (blue -> violet -> magenta
 // -> red -> gold), deliberately skipping the murky yellow-green range so
@@ -187,9 +188,9 @@ export class Task {
     this.lastX = px;
     this.lastY = groundY;
 
-    drawContactShadow(ctx, px, groundY);
+    drawContactShadow(ctx, px, groundY, BODY_R / 8);
     drawChick(ctx, px, groundY, {
-      bodyR: 8,
+      bodyR: BODY_R,
       hue: this.chickHue,
       walkPhase,
       facingLeft: startOffset > 1,
@@ -201,9 +202,9 @@ export class Task {
     // the sphere manifesting in its hands as it settles at camp
     if (arriveFrac > 0.35) {
       const growFrac = (arriveFrac - 0.35) / 0.65;
-      const r = 6 * growFrac;
-      const ox = px + 12;
-      const oy = groundY - 13;
+      const r = 9 * growFrac;
+      const ox = px + 18;
+      const oy = groundY - 18;
       drawOrb(ctx, ox, oy, r, this.orbHue, t, this.phase, growFrac, growFrac);
     }
   }
@@ -224,34 +225,64 @@ export class Task {
     const dirY = upDy / upLen;
     const facingLeft = dirX < 0;
 
-    const speed = this.state === 'summiting' ? 1.4 : waiting ? 0.08 : 0.6;
+    const speed = this.state === 'summiting' ? 1.4 : waiting ? 0.08 : 0.5;
     const walkPhase = t * speed + this.phase;
-    const wobble = waiting ? 0 : Math.sin(walkPhase) * 3;
+    const wobble = waiting ? 0 : Math.sin(walkPhase) * 2;
     const px = base.x + wobble;
     const groundY = base.y;
     this.lastX = px;
     this.lastY = groundY;
 
     const bump = !waiting && pulseAge < 400 ? 8 * (1 - pulseAge / 400) : 0;
-    const bodyR = 8 + bump * 0.3;
-    const legL = 8;
-    const bodyCy = groundY - legL - bodyR * 0.7;
+    const bodyR = BODY_R + bump * 0.4;
 
-    drawContactShadow(ctx, px, groundY);
+    drawContactShadow(ctx, px, groundY, bodyR / 8);
     this.drawMarkers(ctx, route, now);
 
-    // the sphere, carried just uphill of the chick's hands as it's borne to
-    // the summit - not pushed along the ground, held
-    const carryDist = 14;
-    const orbR = 6.5 + this.climbed * 4.5;
-    const orbX = px + dirX * carryDist;
-    const orbY = bodyCy - bodyR * 0.2 + dirY * carryDist * 0.5;
+    // the sphere rests on the slope just uphill of the chick and gets
+    // shoved along it, not carried - its ground contact point is a short
+    // step along the same tangent used for facing direction (the route's
+    // own waypoint-to-waypoint points are much too far apart to use
+    // directly here), so it stays glued to the terrain under it
+    const pushDist = 18;
+    // cap how much a steep pitch can lift the sphere ahead of the chick -
+    // without this it floats up near head height on the mountain's
+    // steepest stretches and reads as carried again, not pushed
+    const pushDirY = Math.max(dirY, -0.6);
+    const orbR = 10 + this.climbed * 7;
+    const strideKick = !waiting ? Math.sin(walkPhase * 3) : 0;
+    const groundPt = { x: px + dirX * pushDist, y: groundY + pushDirY * pushDist };
+    const orbX = groundPt.x;
+    const orbY = groundPt.y - orbR + (waiting ? 0 : strideKick * 1.4);
     const orbGlow = waiting ? 0.45 : 1;
     if (this.lastOrbX) drawOrbTrail(ctx, orbX, orbY, this.lastOrbX, this.lastOrbY, orbR, this.orbHue, waiting ? 0 : this.climbed);
     this.lastOrbX = orbX;
     this.lastOrbY = orbY;
-    drawOrbShadow(ctx, orbX, groundY + 10, orbR);
+    drawOrbShadow(ctx, orbX, groundPt.y, orbR);
     drawOrb(ctx, orbX, orbY, orbR, this.orbHue, t, this.phase, orbGlow, this.climbed);
+
+    // dust kicked up at the sphere's contact point on each downbeat -
+    // cheap, stateless, but it's what sells "straining against it" over
+    // just "standing next to it"
+    if (!waiting && strideKick > 0.6) {
+      const dustAlpha = (strideKick - 0.6) / 0.4;
+      ctx.globalAlpha = dustAlpha * 0.3;
+      ctx.fillStyle = '#cfae86';
+      for (let i = 0; i < 3; i++) {
+        const dist = 6 + i * 3;
+        ctx.beginPath();
+        ctx.arc(groundPt.x - dirX * dist, groundPt.y - dirY * dist + 2, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // pull the hand target back off the orb's center to its near surface,
+    // so the hands land ON the sphere rather than reaching into its middle
+    const reachDX = Math.abs(orbX - px);
+    const reachDY = orbY - groundY;
+    const reachDist = Math.hypot(reachDX, reachDY) || 1;
+    const reachFrac = Math.max(0, reachDist - orbR * 0.75) / reachDist;
 
     drawChick(ctx, px, groundY, {
       bodyR,
@@ -259,11 +290,13 @@ export class Task {
       walkPhase,
       facingLeft,
       bump,
+      pushing: true,
+      strain: waiting ? 0 : strideKick * 0.06,
       idleFlap: waiting ? 0 : Math.sin(t * 2.4 + this.phase) * 0.15,
       excitedFlap: !waiting && pulseAge < 500 ? Math.sin(pulseAge * 0.05) * 0.7 * (1 - pulseAge / 500) : 0,
       // local space relative to the chick's feet (the draw origin), always a
       // forward-positive x since the whole chick gets mirrored as a group
-      reachToward: { x: Math.abs(orbX - px) + bodyR * 0.5, y: orbY - groundY },
+      reachToward: { x: reachDX * reachFrac, y: reachDY * reachFrac },
       accessory: this.accessory,
       t,
     });
@@ -278,22 +311,22 @@ export class Task {
     this.lastX = px;
     this.lastY = groundY;
 
-    drawContactShadow(ctx, px, groundY);
+    drawContactShadow(ctx, px, groundY, BODY_R / 8);
 
     // the sphere settles down and dissolves into the peak's own glow - the
     // task's effort feeding the mountain, not clutter left behind forever
     const settle = Math.min(frac / 0.5, 1);
     const dissolve = frac > 0.5 ? (frac - 0.5) / 0.5 : 0;
-    const orbR = (6.5 + 4.5) * (1 - dissolve) + 2 * dissolve;
-    const orbX = px + 12 * (1 - settle);
-    const orbY = groundY - 10 * (1 - settle) - 4;
+    const orbR = 17 * (1 - dissolve) + 3 * dissolve;
+    const orbX = px + 18 * (1 - settle);
+    const orbY = groundY - 15 * (1 - settle) - 6;
     if (dissolve < 1) drawOrb(ctx, orbX, orbY, orbR, this.orbHue, t, this.phase, 1 + dissolve * 1.5, 1);
 
     // the one-shot 100% burst, right as it lands
     if (elapsed < BURST_MS) drawOrbBurst(ctx, orbX, orbY, this.orbHue, elapsed / BURST_MS);
 
     drawChick(ctx, px, groundY, {
-      bodyR: 8,
+      bodyR: BODY_R,
       hue: this.chickHue,
       walkPhase: t * 0.6 + this.phase,
       facingLeft: false,
