@@ -7,6 +7,7 @@ import { Task } from './task.js';
 import { NetworkClient } from './network.js';
 import { SoundEngine } from './sound.js';
 import { drawGravestone } from './gravestone.js';
+import { drawIdleChicks } from './idle.js';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -128,6 +129,11 @@ function draw() {
   ctx.textBaseline = 'middle';
 
   const activeRoute = pipActive ? sideRoute : route;
+
+  // nobody's climbing right now - the world shouldn't just sit empty, so a
+  // few chicks rest near camp and snack until someone starts a task
+  if (tasks.size === 0) drawIdleChicks(ctx, activeRoute, t, pipActive ? 0.45 : 1);
+
   // back-to-front by ground height, so overlapping chicks stack sensibly
   const ordered = [...tasks.values()].sort((a, b) => a.lastY - b.lastY);
   for (const task of ordered) task.update(dt, now, activeRoute);

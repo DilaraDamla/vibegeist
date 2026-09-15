@@ -5,9 +5,11 @@ import { drawAccessory } from './accessories.js';
 // at "walking" kept reading as sliding, hopping, or swaying instead.
 //
 // opts: { bodyR, hue, walkPhase, facingLeft, bump, armsRaised, pushing, strain,
-// reachToward, accessory, isLeader }
+// reachToward, accessory, isLeader, sitting, eating }
 // reachToward: {x,y} in the chick's local "facing right" space to reach an arm
 // (or, while pushing, both arms) toward the sphere, or null for a relaxed arm.
+// sitting: a relaxed, upright, legs-tucked idle pose (for when there's
+// nothing to climb toward) instead of the walking/leaning ones below.
 export function drawChick(ctx, px, groundY, opts) {
   const {
     bodyR,
@@ -21,6 +23,8 @@ export function drawChick(ctx, px, groundY, opts) {
     reachToward = null,
     accessory = null,
     isLeader = false,
+    sitting = false,
+    eating = false,
     t = 0,
   } = opts;
   const bodyColor = `hsl(${hue}, 62%, 72%)`;
@@ -32,26 +36,42 @@ export function drawChick(ctx, px, groundY, opts) {
   // lean forward into the climb, before mirroring - defined in "facing right"
   // space so it always leans the same way no matter which way it's mirrored.
   // Pushing leans in hard, with a small per-stride surge as it drives into
-  // the sphere - a raised-arms celebration needs no lean at all.
-  ctx.rotate(armsRaised ? 0 : pushing ? 0.36 + strain : 0.16);
+  // the sphere - a raised-arms celebration and just sitting around both need
+  // no lean at all.
+  ctx.rotate(armsRaised || sitting ? 0 : pushing ? 0.36 + strain : 0.16);
   if (facingLeft) ctx.scale(-1, 1);
 
-  // legs: two lines swinging in opposite phase - a real scissor gait
-  ctx.strokeStyle = beakColor;
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  for (const legOffset of [0, Math.PI]) {
-    const swing = Math.sin(walkPhase * 3 + legOffset) * 0.5;
-    const hipY = -legL;
-    const footX = Math.sin(swing) * legL;
-    const footY = hipY + Math.cos(swing) * legL;
+  let bodyCy;
+  if (sitting) {
+    // legs tucked under - a low, squashed-wide seated silhouette instead of
+    // the walking scissor gait
+    ctx.strokeStyle = beakColor;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(0, hipY);
-    ctx.lineTo(footX, footY);
+    ctx.moveTo(-bodyR * 0.35, -bodyR * 0.3);
+    ctx.lineTo(-bodyR * 0.35, 0);
+    ctx.moveTo(bodyR * 0.35, -bodyR * 0.3);
+    ctx.lineTo(bodyR * 0.35, 0);
     ctx.stroke();
+    bodyCy = -bodyR * 0.8;
+  } else {
+    // legs: two lines swinging in opposite phase - a real scissor gait
+    ctx.strokeStyle = beakColor;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    for (const legOffset of [0, Math.PI]) {
+      const swing = Math.sin(walkPhase * 3 + legOffset) * 0.5;
+      const hipY = -legL;
+      const footX = Math.sin(swing) * legL;
+      const footY = hipY + Math.cos(swing) * legL;
+      ctx.beginPath();
+      ctx.moveTo(0, hipY);
+      ctx.lineTo(footX, footY);
+      ctx.stroke();
+    }
+    bodyCy = -legL - bodyR * 0.7;
   }
-
-  const bodyCy = -legL - bodyR * 0.7;
 
   // arm(s): reaching toward the carried orb, or both raised for the summit
   // celebration
@@ -125,6 +145,36 @@ export function drawChick(ctx, px, groundY, opts) {
   ctx.lineTo(bodyR * 0.7 + 5, bodyCy);
   ctx.closePath();
   ctx.fill();
+
+  // a small apple held up near the beak, its bite mark slowly deepening and
+  // resetting - cheap, stateless, but enough to sell "snacking" over just
+  // "sitting near a red dot"
+  if (eating) {
+    const nibble = (Math.sin(t * 1.2) + 1) / 2; // 0..1, slow enough to read as a bite, not a flicker
+    const ax = bodyR * 1.25;
+    const ay = bodyCy - bodyR * 0.1;
+    const appleR = bodyR * 0.3;
+    ctx.fillStyle = '#5a7a4a';
+    ctx.beginPath();
+    ctx.moveTo(ax, ay - appleR);
+    ctx.lineTo(ax, ay - appleR - bodyR * 0.18);
+    ctx.stroke();
+    ctx.strokeStyle = '#5a7a4a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay - appleR);
+    ctx.lineTo(ax, ay - appleR - bodyR * 0.18);
+    ctx.stroke();
+    ctx.fillStyle = '#df4a3a';
+    ctx.beginPath();
+    ctx.arc(ax, ay, appleR, 0.3, Math.PI * 2 - 0.3 - nibble * 1.1, false);
+    ctx.lineTo(ax, ay);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110,20,15,0.4)';
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  }
 
   // blush
   ctx.fillStyle = 'rgba(255,110,140,0.4)';
