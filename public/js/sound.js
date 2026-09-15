@@ -18,7 +18,6 @@ export class SoundEngine {
     this.ctx = null;
     this.enabled = false;
     this._ambient = null;
-    this._crackleId = null;
   }
 
   toggle() {
@@ -155,36 +154,14 @@ export class SoundEngine {
     windSource.start();
     lfo.start();
 
-    // campfire crackle: short highpass-noise bursts at random intervals
-    const crackleGain = ctx.createGain();
-    crackleGain.gain.value = 0.05;
-    crackleGain.connect(ctx.destination);
-
-    const crackle = () => {
-      if (!this.enabled) return;
-      const src = ctx.createBufferSource();
-      src.buffer = noiseBuffer;
-      const filt = ctx.createBiquadFilter();
-      filt.type = 'highpass';
-      filt.frequency.value = 2000 + Math.random() * 2000;
-      const g = ctx.createGain();
-      const t0 = ctx.currentTime;
-      g.gain.setValueAtTime(0, t0);
-      g.gain.linearRampToValueAtTime(0.6, t0 + 0.005);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05 + Math.random() * 0.05);
-      src.connect(filt).connect(g).connect(crackleGain);
-      src.start(t0);
-      src.stop(t0 + 0.15);
-      this._crackleId = setTimeout(crackle, 150 + Math.random() * 400);
-    };
-    crackle();
+    // (campfire crackle used to live here - short highpass-noise bursts at
+    // random intervals - but it landed as a rapid clicky rattle rather than
+    // a fire, so it's gone; wind is the whole ambient bed now)
 
     this._ambient = { windSource, lfo };
   }
 
   _stopAmbient() {
-    if (this._crackleId) clearTimeout(this._crackleId);
-    this._crackleId = null;
     if (!this._ambient) return;
     try {
       this._ambient.windSource.stop();
