@@ -179,6 +179,28 @@ export class SoundEngine {
     });
   }
 
+  // a quick giggling wobble when one task overtakes another mid-climb - a
+  // light "he-he-he" bounce on sine, higher and softer than the coin/fanfare
+  // blips so it reads as playful rather than another achievement chime
+  playOvertake(hue) {
+    if (!this.enabled) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    const root = noteForHue(hue) * 1.5;
+    [1, 1.12, 1, 1.12, 1.22].forEach((mult, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = root * mult;
+      const start = t0 + i * 0.055;
+      gain.gain.setValueAtTime(0.04, start);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.05);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.06);
+    });
+  }
+
   _startAmbient() {
     const ctx = this.ctx;
 

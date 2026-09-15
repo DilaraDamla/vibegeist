@@ -50,6 +50,7 @@ function resizeAll() {
 addEventListener('resize', resizeAll);
 
 const tasks = new Map(); // id -> Task
+const prevClimbed = new Map(); // id -> last frame's climbed, racing tasks only - for overtake detection
 let ghostsToday = 0;
 let ghostsAllTime = 0;
 
@@ -121,18 +122,35 @@ function draw() {
 
   // whoever is furthest along gets a crown - only meaningful with an actual
   // race (2+ still-climbing tasks), never for a lone chick
+  const racing = ordered.filter((task) => task.state !== 'ascending');
   let leaderId = null;
   let leaderClimbed = -1;
-  let racingCount = 0;
-  for (const task of ordered) {
-    if (task.state === 'ascending') continue;
-    racingCount++;
+  for (const task of racing) {
     if (task.climbed > leaderClimbed) {
       leaderClimbed = task.climbed;
       leaderId = task.id;
     }
   }
-  const showLeader = racingCount > 1;
+  const showLeader = racing.length > 1;
+
+  // a giggle when one task's climbed position overtakes another's - compare
+  // against last frame's snapshot, so it only fires on a genuine pass, not
+  // on every frame both happen to be moving
+  for (const a of racing) {
+    const prevA = prevClimbed.get(a.id);
+    if (prevA === undefined) continue;
+    for (const b of racing) {
+      if (a === b) continue;
+      const prevB = prevClimbed.get(b.id);
+      if (prevB === undefined) continue;
+      if (prevA <= prevB && a.climbed > b.climbed) {
+        soundEngine.playOvertake(a.orbHue);
+        break;
+      }
+    }
+  }
+  prevClimbed.clear();
+  for (const task of racing) prevClimbed.set(task.id, task.climbed);
 
   let removedAny = false;
   for (const task of ordered) {
