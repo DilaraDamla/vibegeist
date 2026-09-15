@@ -86,7 +86,12 @@ export class SoundEngine {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
-      osc.frequency.value = SCALE[note.i];
+      // an octave up: the wind's lowpass filter (cutoff ~320-680Hz) sits
+      // directly on top of SCALE's own range, so even at a louder gain the
+      // notes were masked by the wind's own energy in that same band, not
+      // just quiet - moving the melody above that band is what actually
+      // separates them, and it reads sweeter/bell-like besides
+      osc.frequency.value = SCALE[note.i] * 2;
       gain.gain.setValueAtTime(0, when);
       gain.gain.linearRampToValueAtTime(1, when + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.001, when + note.d * 0.9);
