@@ -115,6 +115,51 @@ export class Task {
     else if (this.state === 'ascending') this.drawAscending(ctx, t, now);
   }
 
+  // the widget's whole-task render: a single glowing dot at the task's
+  // position on the route, nothing else - no chick, no carried orb, no
+  // waypoint scenery. The widget only needs to answer "how far along is
+  // each task", so that's all this draws.
+  drawProgress(ctx, route, now) {
+    let x, y, alpha;
+    if (this.state === 'ascending') {
+      const elapsed = now - this.since;
+      const frac = Math.min(elapsed / ASCEND_MS, 1);
+      const base = route.pointAt(1, 0);
+      x = base.x;
+      y = base.y - 22 * Math.pow(frac, 0.7);
+      alpha = Math.max(0, 1 - frac);
+    } else if (this.state === 'arriving' || this.state === 'placing') {
+      const pos = route.pointAt(this.state === 'arriving' ? 0 : 1, 0);
+      x = pos.x;
+      y = pos.y;
+      alpha = 1;
+    } else {
+      const pos = route.pointAt(this.climbed, 0);
+      x = pos.x;
+      y = pos.y;
+      alpha = 1;
+    }
+    this.lastX = x;
+    this.lastY = y;
+
+    const pulseAge = this.pulse ? now - this.pulse : 9999;
+    const bump = pulseAge < 400 ? 1 + 0.5 * (1 - pulseAge / 400) : 1;
+    const r = 3.5 * bump;
+
+    const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 3.5);
+    glow.addColorStop(0, `hsla(${this.orbHue}, 90%, 75%, ${0.5 * alpha})`);
+    glow.addColorStop(1, `hsla(${this.orbHue}, 90%, 60%, 0)`);
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = `hsla(${this.orbHue}, 85%, 75%, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   drawMarkers(ctx, route, now) {
     for (const f of this.flashes) {
       const age = (now - f.at) / 600;
