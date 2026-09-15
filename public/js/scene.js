@@ -8,6 +8,33 @@ export class Scene {
   constructor(canvas) {
     this.canvas = canvas;
     this.resize();
+    // occasional storms: the wind picks up for a while, then settles - pure
+    // atmosphere, scheduled with real wall-clock gaps so it doesn't feel
+    // metronomic. First one eligible 15-35s after load.
+    this.stormStart = 0;
+    this.stormDur = 5000;
+    this.nextStorm = Date.now() + 15000 + Math.random() * 20000;
+  }
+
+  // call once per frame; returns nothing, just advances scheduling
+  updateStorm() {
+    const now = Date.now();
+    if (now > this.nextStorm && now > this.stormStart + this.stormDur) {
+      this.stormStart = now;
+      this.nextStorm = now + this.stormDur + 40000 + Math.random() * 50000;
+    }
+  }
+
+  // 0..1, eased in/out over each storm's own lifetime - not a hard on/off
+  // switch, so it swells and settles rather than snapping
+  get stormFrac() {
+    const elapsed = Date.now() - this.stormStart;
+    if (elapsed < 0 || elapsed > this.stormDur) return 0;
+    const rise = 800;
+    const fall = 1400;
+    if (elapsed < rise) return elapsed / rise;
+    if (elapsed > this.stormDur - fall) return (this.stormDur - elapsed) / fall;
+    return 1;
   }
 
   resize() {
@@ -97,13 +124,18 @@ export class Scene {
   }
 
   // wind swirls: the classic curling spiral glyph for wind/breeze, actually
-  // spinning as it drifts, tail fading toward the outer loose end
-  drawWind(ctx, t, dt) {
+  // spinning as it drifts, tail fading toward the outer loose end. `storm`
+  // (0..1) speeds the drift/spin and brightens them during a storm, rather
+  // than spawning extra gusts - cheaper, and the existing ones just feel
+  // more agitated.
+  drawWind(ctx, t, dt, storm = 0) {
     const canvas = this.canvas;
+    const speedMul = 1 + storm * 2.2;
+    const opacityMul = 1 + storm * 1.3;
     ctx.strokeStyle = '#d2d7eb';
     ctx.lineCap = 'round';
     for (const g of this.windGusts) {
-      g.x += g.driftSpeed * dt;
+      g.x += g.driftSpeed * speedMul * dt;
       if (g.x - g.scale > canvas.width) {
         g.x = -g.scale * 2 - Math.random() * 200;
         g.y = Math.random() * canvas.height * 0.5;
@@ -111,8 +143,8 @@ export class Scene {
       const bob = Math.sin(t * 0.4 + g.phase) * 5;
       ctx.save();
       ctx.translate(g.x, g.y + bob);
-      ctx.rotate(t * g.spinSpeed + g.phase);
-      ctx.lineWidth = 1.3;
+      ctx.rotate(t * g.spinSpeed * speedMul + g.phase);
+      ctx.lineWidth = 1.3 + storm * 0.6;
       const turns = 1.5;
       const steps = 20;
       let prevX = g.scale * 1.12;
@@ -123,7 +155,7 @@ export class Scene {
         const r = g.scale * (1 - frac) + g.scale * 0.12;
         const x = Math.cos(a) * r;
         const y = Math.sin(a) * r * 0.62;
-        ctx.globalAlpha = g.opacity * frac;
+        ctx.globalAlpha = Math.min(1, g.opacity * frac * opacityMul);
         ctx.beginPath();
         ctx.moveTo(prevX, prevY);
         ctx.lineTo(x, y);

@@ -113,12 +113,15 @@ function draw() {
   // the widget gets its own compact one-sided view (progress running left to
   // right) instead of the full symmetric peak - a small corner window can't
   // fit the whole diorama legibly
+  scene.updateStorm();
+  const storm = pipActive ? 0 : scene.stormFrac; // the widget has no wind scenery to intensify
+  soundEngine.setStormIntensity(storm);
   if (pipActive) {
     widgetScene.draw(ctx, t);
   } else {
     scene.drawSky(ctx);
     scene.drawStars(ctx, t);
-    scene.drawWind(ctx, t, dt);
+    scene.drawWind(ctx, t, dt, storm);
     scene.drawFarRanges(ctx);
     mountain.draw(ctx);
     waypoints.draw(ctx, t, dt);
@@ -174,7 +177,7 @@ function draw() {
   for (const task of ordered) {
     const isLeader = showLeader && task.id === leaderId;
     if (pipActive) task.drawProgress(ctx, activeRoute, t, now, isLeader);
-    else task.draw(ctx, activeRoute, t, now, isLeader);
+    else task.draw(ctx, activeRoute, t, now, isLeader, storm);
     if (task.finished) removedAny = true;
   }
   if (removedAny) {

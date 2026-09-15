@@ -113,9 +113,9 @@ export class Task {
     }
   }
 
-  draw(ctx, route, t, now, isLeader = false) {
+  draw(ctx, route, t, now, isLeader = false, storm = 0) {
     if (this.state === 'arriving') this.drawArriving(ctx, route, t, isLeader);
-    else if (this.state === 'climbing' || this.state === 'summiting') this.drawClimbing(ctx, route, t, now, isLeader);
+    else if (this.state === 'climbing' || this.state === 'summiting') this.drawClimbing(ctx, route, t, now, isLeader, storm);
     else if (this.state === 'placing') this.drawPlacing(ctx, route, t, now, isLeader);
     else if (this.state === 'ascending') this.drawAscending(ctx, t, now);
   }
@@ -250,7 +250,7 @@ export class Task {
     }
   }
 
-  drawClimbing(ctx, route, t, now, isLeader = false) {
+  drawClimbing(ctx, route, t, now, isLeader = false, storm = 0) {
     const pulseAge = this.pulse ? now - this.pulse : 9999;
     // no activity for a long stretch reads as "waiting", not broken - the
     // chick settles into place and the sphere dims rather than the world
@@ -268,7 +268,9 @@ export class Task {
 
     const speed = this.state === 'summiting' ? 1.4 : waiting ? 0.08 : 0.5;
     const walkPhase = t * speed + this.phase;
-    const wobble = waiting ? 0 : Math.sin(walkPhase) * 2;
+    // a storm makes the stagger visibly worse - not just decoration, it
+    // reads as the chick actually fighting the wind mid-climb
+    const wobble = waiting ? 0 : Math.sin(walkPhase) * (2 + storm * 7);
     const px = base.x + wobble;
     const groundY = base.y;
     this.lastX = px;

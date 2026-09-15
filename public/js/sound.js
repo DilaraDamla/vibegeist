@@ -227,7 +227,8 @@ export class SoundEngine {
     windFilter.Q.value = 0.7;
 
     const windGain = ctx.createGain();
-    windGain.gain.value = 0.022;
+    this._windBaseGain = 0.022;
+    windGain.gain.value = this._windBaseGain;
 
     const lfo = ctx.createOscillator();
     lfo.frequency.value = 0.07;
@@ -243,7 +244,15 @@ export class SoundEngine {
     // random intervals - but it landed as a rapid clicky rattle rather than
     // a fire, so it's gone; wind is the whole ambient bed now)
 
-    this._ambient = { windSource, lfo };
+    this._ambient = { windSource, lfo, windGain };
+  }
+
+  // 0..1 - swells the wind bed's volume during a storm, synced to the same
+  // visual intensity main.js reads from Scene#stormFrac. Safe to call even
+  // when sound is off or ambient hasn't started (no-ops).
+  setStormIntensity(frac) {
+    if (!this.enabled || !this._ambient) return;
+    this._ambient.windGain.gain.value = this._windBaseGain * (1 + frac * 2.5);
   }
 
   _stopAmbient() {
