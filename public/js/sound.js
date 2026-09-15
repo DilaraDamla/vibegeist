@@ -75,7 +75,10 @@ export class SoundEngine {
   _scheduleMelodyLoop() {
     const ctx = this.ctx;
     const bus = ctx.createGain();
-    bus.gain.value = 0.035;
+    // louder than the wind bed's own gain suggests it should need to be -
+    // continuous broadband noise reads as "loud" well below where a short,
+    // quiet, pure-tone note is even noticeable next to it
+    bus.gain.value = 0.09;
     bus.connect(ctx.destination);
 
     let when = ctx.currentTime + 0.05;
@@ -219,7 +222,7 @@ export class SoundEngine {
     windFilter.Q.value = 0.7;
 
     const windGain = ctx.createGain();
-    windGain.gain.value = 0.035;
+    windGain.gain.value = 0.022;
 
     const lfo = ctx.createOscillator();
     lfo.frequency.value = 0.07;
