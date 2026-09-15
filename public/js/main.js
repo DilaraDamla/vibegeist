@@ -94,9 +94,12 @@ new NetworkClient((msg) => {
   } else if (msg.type === 'leave') {
     const task = tasks.get(msg.id);
     // only a task that never reached the summit gets a marker - a normal
-    // completion already has its own summit + rising-spirit ending
+    // completion already has its own summit + rising-spirit ending. Stored
+    // as route progress, not raw pixels, so it resolves correctly on
+    // whichever route (main or widget) is active when it's drawn, and
+    // survives a canvas resize in between
     if (task && task.state !== 'placing' && task.state !== 'ascending') {
-      gravestones.push({ x: task.lastX, y: task.lastY, hue: task.chickHue });
+      gravestones.push({ progress: task.climbed, lateralOffset: task.lateralOffset, hue: task.chickHue });
     }
     tasks.delete(msg.id);
   }
@@ -125,13 +128,19 @@ function draw() {
     scene.drawFarRanges(ctx);
     mountain.draw(ctx);
     waypoints.draw(ctx, t, dt);
-    for (const g of gravestones) drawGravestone(ctx, g.x, g.y, g.hue);
   }
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
   const activeRoute = pipActive ? sideRoute : route;
+
+  // resolved from route progress at draw time (not stored pixels), so these
+  // land correctly on whichever view is active and survive a canvas resize
+  for (const g of gravestones) {
+    const pos = activeRoute.pointAt(g.progress, pipActive ? 0 : g.lateralOffset);
+    drawGravestone(ctx, pos.x, pos.y, g.hue, pipActive ? 0.45 : 1);
+  }
 
   // nobody's climbing right now - the world shouldn't just sit empty, so a
   // few chicks rest near camp and snack until someone starts a task

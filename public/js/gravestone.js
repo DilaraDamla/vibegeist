@@ -4,25 +4,29 @@
 // by the departed task's own hue, so it reads as "theirs".
 const INK = 'rgba(20,14,28,0.55)';
 
-export function drawGravestone(ctx, x, y, hue) {
+export function drawGravestone(ctx, x, y, hue, scale = 1) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
   // small mound of dirt
   ctx.fillStyle = 'rgba(40,34,54,0.5)';
   ctx.beginPath();
-  ctx.ellipse(x, y + 2, 12, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 2, 12, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // the stone itself, rounded top
-  const stoneGrad = ctx.createLinearGradient(x - 5, y, x + 5, y);
+  const stoneGrad = ctx.createLinearGradient(-5, 0, 5, 0);
   stoneGrad.addColorStop(0, '#4a4558');
   stoneGrad.addColorStop(0.5, '#69647e');
   stoneGrad.addColorStop(1, '#3a3648');
   ctx.fillStyle = stoneGrad;
   ctx.beginPath();
-  ctx.moveTo(x - 5, y + 1);
-  ctx.lineTo(x - 5, y - 8);
-  ctx.quadraticCurveTo(x - 5, y - 13, x, y - 13);
-  ctx.quadraticCurveTo(x + 5, y - 13, x + 5, y - 8);
-  ctx.lineTo(x + 5, y + 1);
+  ctx.moveTo(-5, 1);
+  ctx.lineTo(-5, -8);
+  ctx.quadraticCurveTo(-5, -13, 0, -13);
+  ctx.quadraticCurveTo(5, -13, 5, -8);
+  ctx.lineTo(5, 1);
   ctx.closePath();
   ctx.fill();
   ctx.strokeStyle = INK;
@@ -30,13 +34,13 @@ export function drawGravestone(ctx, x, y, hue) {
   ctx.stroke();
 
   // a single small flower leaning against it, in the departed task's hue
-  const stemX = x + 7;
-  const stemTopY = y - 7;
+  const stemX = 7;
+  const stemTopY = -7;
   ctx.strokeStyle = '#5a7a4a';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(stemX, y + 1);
-  ctx.quadraticCurveTo(stemX + 1, y - 4, stemX, stemTopY);
+  ctx.moveTo(stemX, 1);
+  ctx.quadraticCurveTo(stemX + 1, -4, stemX, stemTopY);
   ctx.stroke();
 
   ctx.fillStyle = `hsl(${hue}, 70%, 68%)`;
@@ -50,4 +54,6 @@ export function drawGravestone(ctx, x, y, hue) {
   ctx.beginPath();
   ctx.arc(stemX, stemTopY, 1, 0, Math.PI * 2);
   ctx.fill();
+
+  ctx.restore();
 }

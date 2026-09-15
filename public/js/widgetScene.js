@@ -45,8 +45,8 @@ export class WidgetScene {
     ctx.arc(x1, y1, c.width * 0.18 * pulse, 0, Math.PI * 2);
     ctx.fill();
 
-    // the track: a jagged line, not a ruler-straight one - same silhouette
-    // language as the main mountain, applied to a diagonal instead of a peak
+    // the jagged ridge line - same silhouette noise mountain.js uses,
+    // applied to a diagonal instead of a peak
     const dx = x1 - x0;
     const dy = y1 - y0;
     const len = Math.hypot(dx, dy) || 1;
@@ -54,16 +54,35 @@ export class WidgetScene {
     const perpY = dx / len;
     const jitterAmp = Math.min(c.width, c.height) * 0.045;
 
-    ctx.strokeStyle = 'rgba(255,225,205,0.5)';
+    const ridge = [{ x: x0, y: y0 }];
+    for (const j of this.jitters) {
+      ridge.push({
+        x: x0 + dx * j.frac + perpX * j.offset * jitterAmp,
+        y: y0 + dy * j.frac + perpY * j.offset * jitterAmp,
+      });
+    }
+    ridge.push({ x: x1, y: y1 });
+
+    // fill the slope below the ridge down to the bottom of the canvas - a
+    // bare stroked line floated in empty sky and never actually read as a
+    // mountain, just a decorative squiggle
+    const rockGrad = ctx.createLinearGradient(0, y1, 0, c.height);
+    rockGrad.addColorStop(0, '#2a2350');
+    rockGrad.addColorStop(1, '#14101f');
+    ctx.fillStyle = rockGrad;
+    ctx.beginPath();
+    ctx.moveTo(x0, c.height);
+    for (const p of ridge) ctx.lineTo(p.x, p.y);
+    ctx.lineTo(x1, c.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // the ridge line itself, as a lit edge on top of the fill
+    ctx.strokeStyle = 'rgba(255,225,205,0.55)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    for (const j of this.jitters) {
-      const px = x0 + dx * j.frac + perpX * j.offset * jitterAmp;
-      const py = y0 + dy * j.frac + perpY * j.offset * jitterAmp;
-      ctx.lineTo(px, py);
-    }
-    ctx.lineTo(x1, y1);
+    ctx.moveTo(ridge[0].x, ridge[0].y);
+    for (const p of ridge.slice(1)) ctx.lineTo(p.x, p.y);
     ctx.stroke();
 
     ctx.fillStyle = 'rgba(230,210,220,0.7)';

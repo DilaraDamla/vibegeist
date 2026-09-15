@@ -149,6 +149,7 @@ export class Task {
 
     const walkPhase = t * 0.5 + this.phase;
     drawContactShadow(ctx, pos.x, pos.y, scale);
+    if (this.state !== 'arriving') this.drawMarkers(ctx, route, now);
 
     if (this.state === 'placing') {
       const elapsed = now - this.since;
