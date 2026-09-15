@@ -2,13 +2,17 @@ import { drawChick, drawContactShadow } from './chick.js';
 import { drawOrb, drawOrbShadow, drawOrbTrail, drawOrbBurst } from './orb.js';
 import { drawSpirit } from './spirit.js';
 import { pickAccessory } from './accessories.js';
+import { WAYPOINTS } from './route.js';
 
 const ARRIVE_MS = 700;
 const PLACING_MS = 950;
 const ASCEND_MS = 3400;
 const CLIMB_EASE_RATE = 5.0;
 const SUMMIT_EASE_RATE = 8.0;
-const MARKERS = [0.25, 0.5, 0.75];
+// the real named landmarks between camp and peak (excluding those two
+// endpoints, which already have their own arrival/placing ceremonies) -
+// passing one now lights up that actual place, not just a milestone number
+const LANDMARKS = WAYPOINTS.filter((wp) => wp.p > 0 && wp.p < 1);
 const WAIT_IDLE_MS = 20000; // no activity ping for this long reads as "waiting"
 const BURST_MS = 500;
 const BODY_R = 13; // bumped up from the original 8 so the climb reads at a glance
@@ -97,14 +101,14 @@ export class Task {
     }
 
     // age out the little progress-point flashes
-    this.flashes = this.flashes.filter((f) => now - f.at < 600);
+    this.flashes = this.flashes.filter((f) => now - f.at < 900);
   }
 
   checkMarkers(now) {
-    for (const m of MARKERS) {
-      if (this.climbed >= m && !this.passedMarkers.has(m)) {
-        this.passedMarkers.add(m);
-        this.flashes.push({ p: m, at: now });
+    for (const wp of LANDMARKS) {
+      if (this.climbed >= wp.p && !this.passedMarkers.has(wp.name)) {
+        this.passedMarkers.add(wp.name);
+        this.flashes.push({ wp, at: now });
       }
     }
   }
@@ -184,15 +188,28 @@ export class Task {
     });
   }
 
+  // lights up the actual landmark just passed (its real position on the
+  // mountain, not the task's own lane) - a soft glow plus an expanding
+  // ring, like the place itself is answering "yes, you were here"
   drawMarkers(ctx, route, now) {
     for (const f of this.flashes) {
-      const age = (now - f.at) / 600;
-      const pt = route.pointAt(f.p, this.lateralOffset);
-      ctx.globalAlpha = 1 - age;
+      const age = (now - f.at) / 900;
+      const pt = route.anchor(f.wp);
+      const alpha = 1 - age;
+
+      const glow = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 22 + age * 10);
+      glow.addColorStop(0, `hsla(${this.orbHue}, 85%, 80%, ${0.5 * alpha})`);
+      glow.addColorStop(1, `hsla(${this.orbHue}, 85%, 80%, 0)`);
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 22 + age * 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = alpha;
       ctx.strokeStyle = `hsla(${this.orbHue}, 80%, 85%, 0.8)`;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 4 + age * 14, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, 6 + age * 18, 0, Math.PI * 2);
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
