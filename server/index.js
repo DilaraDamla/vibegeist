@@ -45,7 +45,8 @@ function seededPos(id) {
 }
 
 async function serveStatic(req, res) {
-  const reqPath = req.url === '/' ? '/index.html' : req.url;
+  const urlPath = req.url.split('?')[0];
+  const reqPath = urlPath === '/' ? '/index.html' : urlPath;
   const filePath = path.join(PUBLIC_DIR, reqPath);
   if (!filePath.startsWith(PUBLIC_DIR)) {
     res.writeHead(403);

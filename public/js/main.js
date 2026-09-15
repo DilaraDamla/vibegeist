@@ -35,7 +35,12 @@ const route = new Route(canvas);
 const waypoints = new Waypoints(canvas, route);
 const sideRoute = new SideRoute(canvas);
 const widgetScene = new WidgetScene(canvas, sideRoute);
-let pipActive = false;
+// a shared link can carry ?widget=1 so it opens straight into the compact
+// view for whoever clicks it (e.g. sent to other players) - this renders
+// the same WidgetScene/Task#drawProgress path the real PiP window uses,
+// just in the normal tab, since documentPictureInPicture itself can only
+// ever be opened from a click (browsers refuse it without one)
+let pipActive = new URLSearchParams(location.search).has('widget');
 function resizeAll() {
   resize();
   scene.resize();
