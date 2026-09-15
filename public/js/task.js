@@ -116,49 +116,70 @@ export class Task {
     else if (this.state === 'ascending') this.drawAscending(ctx, t, now);
   }
 
-  // the widget's whole-task render: a single glowing dot at the task's
-  // position on the route, nothing else - no chick, no carried orb, no
-  // waypoint scenery. The widget only needs to answer "how far along is
-  // each task", so that's all this draws.
-  drawProgress(ctx, route, now) {
-    let x, y, alpha;
+  // the widget's whole-task render: the same pushing chick + sphere as the
+  // main page, reused at a smaller scale with the extra dust/marker effects
+  // dropped - the widget should read as the same world zoomed out, not a
+  // separate abstract progress indicator.
+  drawProgress(ctx, route, t, now) {
+    const scale = 0.45;
+    const bodyR = BODY_R * scale;
+
     if (this.state === 'ascending') {
       const elapsed = now - this.since;
       const frac = Math.min(elapsed / ASCEND_MS, 1);
       const base = route.pointAt(1, 0);
-      x = base.x;
-      y = base.y - 22 * Math.pow(frac, 0.7);
-      alpha = Math.max(0, 1 - frac);
-    } else if (this.state === 'arriving' || this.state === 'placing') {
-      const pos = route.pointAt(this.state === 'arriving' ? 0 : 1, 0);
-      x = pos.x;
-      y = pos.y;
-      alpha = 1;
-    } else {
-      const pos = route.pointAt(this.climbed, 0);
-      x = pos.x;
-      y = pos.y;
-      alpha = 1;
+      const rise = 26 * Math.pow(frac, 0.7);
+      const alpha = frac < 0.15 ? frac / 0.15 : 1 - Math.max(0, (frac - 0.6) / 0.4);
+      this.lastX = base.x;
+      this.lastY = base.y;
+      drawSpirit(ctx, base.x, base.y - rise, Math.max(0, alpha), this.chickHue, t, this.phase);
+      return;
     }
-    this.lastX = x;
-    this.lastY = y;
 
-    const pulseAge = this.pulse ? now - this.pulse : 9999;
-    const bump = pulseAge < 400 ? 1 + 0.5 * (1 - pulseAge / 400) : 1;
-    const r = 3.5 * bump;
+    const progress = this.state === 'placing' ? 1 : this.state === 'arriving' ? 0 : this.climbed;
+    const pos = route.pointAt(progress, 0);
+    const ahead = route.pointAt(Math.min(progress + 0.05, 1), 0);
+    const facingLeft = ahead.x - pos.x < 0;
+    this.lastX = pos.x;
+    this.lastY = pos.y;
 
-    const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 3.5);
-    glow.addColorStop(0, `hsla(${this.orbHue}, 90%, 75%, ${0.5 * alpha})`);
-    glow.addColorStop(1, `hsla(${this.orbHue}, 90%, 60%, 0)`);
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 3.5, 0, Math.PI * 2);
-    ctx.fill();
+    const walkPhase = t * 0.5 + this.phase;
+    drawContactShadow(ctx, pos.x, pos.y, scale);
 
-    ctx.fillStyle = `hsla(${this.orbHue}, 85%, 75%, ${alpha})`;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
+    if (this.state === 'placing') {
+      const elapsed = now - this.since;
+      const frac = Math.min(elapsed / PLACING_MS, 1);
+      const orbR = (17 * (1 - frac) + 3 * frac) * scale;
+      const orbX = pos.x + 8 * scale * (1 - frac);
+      const orbY = pos.y - 7 * scale * (1 - frac) - 2 * scale;
+      if (frac < 1) drawOrb(ctx, orbX, orbY, orbR, this.orbHue, t, this.phase, 1, 1);
+      drawChick(ctx, pos.x, pos.y, {
+        bodyR,
+        hue: this.chickHue,
+        walkPhase,
+        facingLeft: false,
+        armsRaised: frac > 0.35,
+        t,
+      });
+      return;
+    }
+
+    const pushDist = 18 * scale;
+    const orbR = (10 + this.climbed * 7) * scale;
+    const dirSign = facingLeft ? -1 : 1;
+    const groundPt = { x: pos.x + dirSign * pushDist, y: pos.y };
+    const orbY = groundPt.y - orbR;
+    drawOrbShadow(ctx, groundPt.x, groundPt.y, orbR);
+    drawOrb(ctx, groundPt.x, orbY, orbR, this.orbHue, t, this.phase, 1, this.climbed);
+    drawChick(ctx, pos.x, pos.y, {
+      bodyR,
+      hue: this.chickHue,
+      walkPhase,
+      facingLeft,
+      pushing: true,
+      reachToward: { x: Math.abs(groundPt.x - pos.x) * 0.45, y: orbY - pos.y },
+      t,
+    });
   }
 
   drawMarkers(ctx, route, now) {

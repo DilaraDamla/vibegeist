@@ -115,7 +115,7 @@ function draw() {
   let removedAny = false;
   for (const task of ordered) {
     task.update(dt, now, activeRoute);
-    if (pipActive) task.drawProgress(ctx, activeRoute, now);
+    if (pipActive) task.drawProgress(ctx, activeRoute, t, now);
     else task.draw(ctx, activeRoute, t, now);
     if (task.finished) removedAny = true;
   }
