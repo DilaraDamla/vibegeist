@@ -15,6 +15,9 @@ const SUMMIT_EASE_RATE = 8.0;
 const LANDMARKS = WAYPOINTS.filter((wp) => wp.p > 0 && wp.p < 1);
 const WAIT_IDLE_MS = 20000; // no activity ping for this long reads as "waiting"
 const BURST_MS = 500;
+// how big chicks/orbs/gravestones draw in the compact widget, relative to the
+// main view - one shared knob so the widget stays consistent when tuned
+export const WIDGET_SCALE = 0.9;
 const BODY_R = 13; // bumped up from the original 8 so the climb reads at a glance
 
 // maps a 0..1 fraction to a "jewel tone" hue band (blue -> violet -> magenta
@@ -52,6 +55,7 @@ export class Task {
     this.lastOrbY = 0;
     this.passedMarkers = new Set();
     this.flashes = [];
+    this.overtakeAt = 0; // set by main.js when this task passes another - drives the widget's bounce
   }
 
   activity(now) {
@@ -124,9 +128,14 @@ export class Task {
   // main page, reused at a smaller scale with the extra dust/marker effects
   // dropped - the widget should read as the same world zoomed out, not a
   // separate abstract progress indicator.
-  drawProgress(ctx, route, t, now, isLeader = false) {
-    const scale = 0.45;
-    const bodyR = BODY_R * scale;
+  drawProgress(ctx, route, t, now, isLeader = false, storm = 0) {
+    const scale = WIDGET_SCALE;
+    // a short pop right after overtaking another task - the widget's only
+    // stand-in for the main view's activity-pulse bump, since a small
+    // corner window needs its own visual payoff for the overtake sound
+    const overtakeAge = now - this.overtakeAt;
+    const overtakeBump = this.overtakeAt && overtakeAge < 400 ? 1 + 0.22 * (1 - overtakeAge / 400) : 1;
+    const bodyR = BODY_R * scale * overtakeBump;
 
     if (this.state === 'ascending') {
       const elapsed = now - this.since;
@@ -148,16 +157,19 @@ export class Task {
     this.lastY = pos.y;
 
     const walkPhase = t * 0.5 + this.phase;
-    drawContactShadow(ctx, pos.x, pos.y, scale);
-    if (this.state !== 'arriving') this.drawMarkers(ctx, route, now);
 
     if (this.state === 'placing') {
+      drawContactShadow(ctx, pos.x, pos.y, scale);
+      this.drawMarkers(ctx, route, now);
       const elapsed = now - this.since;
       const frac = Math.min(elapsed / PLACING_MS, 1);
       const orbR = (17 * (1 - frac) + 3 * frac) * scale;
       const orbX = pos.x + 8 * scale * (1 - frac);
       const orbY = pos.y - 7 * scale * (1 - frac) - 2 * scale;
       if (frac < 1) drawOrb(ctx, orbX, orbY, orbR, this.orbHue, t, this.phase, 1, 1);
+      // the one-shot summit burst, scaled down to fit the widget - without
+      // this the widget's summit moment was just a shrinking orb, no payoff
+      if (elapsed < BURST_MS) drawOrbBurst(ctx, orbX, orbY, this.orbHue, elapsed / BURST_MS);
       drawChick(ctx, pos.x, pos.y, {
         bodyR,
         hue: this.chickHue,
@@ -170,20 +182,27 @@ export class Task {
       return;
     }
 
+    // a storm staggers the push sideways here too, same as the main view -
+    // the widget should feel the weather, not just show a calmer replica
+    const wobble = this.state === 'arriving' ? 0 : Math.sin(walkPhase) * (2 + storm * 7) * scale;
+    const px = pos.x + wobble;
+    drawContactShadow(ctx, px, pos.y, scale);
+    if (this.state !== 'arriving') this.drawMarkers(ctx, route, now);
+
     const pushDist = 18 * scale;
     const orbR = (10 + this.climbed * 7) * scale;
     const dirSign = facingLeft ? -1 : 1;
-    const groundPt = { x: pos.x + dirSign * pushDist, y: pos.y };
+    const groundPt = { x: px + dirSign * pushDist, y: pos.y };
     const orbY = groundPt.y - orbR;
     drawOrbShadow(ctx, groundPt.x, groundPt.y, orbR);
     drawOrb(ctx, groundPt.x, orbY, orbR, this.orbHue, t, this.phase, 1, this.climbed);
-    drawChick(ctx, pos.x, pos.y, {
+    drawChick(ctx, px, pos.y, {
       bodyR,
       hue: this.chickHue,
       walkPhase,
       facingLeft,
       pushing: true,
-      reachToward: { x: Math.abs(groundPt.x - pos.x) * 0.45, y: orbY - pos.y },
+      reachToward: { x: Math.abs(groundPt.x - px) * 0.45, y: orbY - pos.y },
       isLeader,
       t,
     });

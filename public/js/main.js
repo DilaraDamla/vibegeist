@@ -1,9 +1,9 @@
 import { Scene } from './scene.js';
 import { Mountain } from './mountain.js';
-import { Route, SideRoute } from './route.js';
+import { Route, SideRoute, CameraRoute } from './route.js';
 import { Waypoints } from './waypoints.js';
 import { WidgetScene } from './widgetScene.js';
-import { Task } from './task.js';
+import { Task, WIDGET_SCALE } from './task.js';
 import { NetworkClient } from './network.js';
 import { SoundEngine } from './sound.js';
 import { drawGravestone } from './gravestone.js';
@@ -43,6 +43,48 @@ const widgetScene = new WidgetScene(canvas, sideRoute);
 // just in the normal tab, since documentPictureInPicture itself can only
 // ever be opened from a click (browsers refuse it without one)
 let pipActive = new URLSearchParams(location.search).has('widget');
+
+// the widget's camera: a [lo, hi] slice of 0..1 progress that follows
+// whoever's furthest along, so the small window shows a close-up of the
+// mountain instead of the whole camp-to-peak span shrunk down. Both ends
+// ease toward their target each frame rather than snapping, and the window
+// widens when tasks are spread apart so a close race stays in frame together.
+let camCenter = 0;
+let camHalfSpan = 0.045;
+function updateCamera(dt) {
+  const active = [...tasks.values()].filter((task) => task.state !== 'ascending');
+  let target = camCenter;
+  let spread = 0;
+  if (active.length) {
+    const progresses = active.map((task) =>
+      task.state === 'placing' ? 1 : task.state === 'arriving' ? 0 : task.climbed
+    );
+    target = Math.max(...progresses);
+    spread = target - Math.min(...progresses);
+  } else {
+    target = 0; // nobody climbing - settle back on camp, same as the idle chicks
+  }
+  const targetHalfSpan = Math.min(0.16, Math.max(0.045, spread * 0.6 + 0.045));
+  const ease = Math.min(1, dt * 2.2);
+  camCenter += (target - camCenter) * ease;
+  camHalfSpan += (targetHalfSpan - camHalfSpan) * ease;
+
+  let lo = camCenter - camHalfSpan;
+  let hi = camCenter + camHalfSpan;
+  // shift the whole window back into [0, 1] rather than clamping each end
+  // independently, so its width (and so the zoom level) doesn't change
+  // right at the very start or end of the climb
+  if (lo < 0) {
+    hi -= lo;
+    lo = 0;
+  }
+  if (hi > 1) {
+    lo -= hi - 1;
+    hi = 1;
+  }
+  return { lo: Math.max(0, lo), hi: Math.min(1, hi) };
+}
+
 function resizeAll() {
   resize();
   scene.resize();
@@ -117,10 +159,12 @@ function draw() {
   // right) instead of the full symmetric peak - a small corner window can't
   // fit the whole diorama legibly
   scene.updateStorm();
-  const storm = pipActive ? 0 : scene.stormFrac; // the widget has no wind scenery to intensify
+  const storm = scene.stormFrac; // storms play out in the widget too, not just the main diorama
   soundEngine.setStormIntensity(storm);
+  const camera = pipActive ? updateCamera(dt) : null;
   if (pipActive) {
-    widgetScene.draw(ctx, t);
+    widgetScene.draw(ctx, t, camera);
+    scene.drawWind(ctx, t, dt, storm);
   } else {
     scene.drawSky(ctx);
     scene.drawStars(ctx, t);
@@ -133,18 +177,18 @@ function draw() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  const activeRoute = pipActive ? sideRoute : route;
+  const activeRoute = pipActive ? new CameraRoute(sideRoute, camera.lo, camera.hi, widgetScene.shiftFor(camera.lo, camera.hi)) : route;
 
   // resolved from route progress at draw time (not stored pixels), so these
   // land correctly on whichever view is active and survive a canvas resize
   for (const g of gravestones) {
     const pos = activeRoute.pointAt(g.progress, pipActive ? 0 : g.lateralOffset);
-    drawGravestone(ctx, pos.x, pos.y, g.hue, pipActive ? 0.45 : 1);
+    drawGravestone(ctx, pos.x, pos.y, g.hue, pipActive ? WIDGET_SCALE : 1);
   }
 
   // nobody's climbing right now - the world shouldn't just sit empty, so a
   // few chicks rest near camp and snack until someone starts a task
-  if (tasks.size === 0) drawIdleChicks(ctx, activeRoute, t, pipActive ? 0.45 : 1);
+  if (tasks.size === 0) drawIdleChicks(ctx, activeRoute, t, pipActive ? WIDGET_SCALE : 1, pipActive);
 
   // back-to-front by ground height, so overlapping chicks stack sensibly
   const ordered = [...tasks.values()].sort((a, b) => a.lastY - b.lastY);
@@ -175,6 +219,7 @@ function draw() {
       if (prevB === undefined) continue;
       if (prevA <= prevB && a.climbed > b.climbed) {
         soundEngine.playOvertake(a.orbHue);
+        a.overtakeAt = now;
         break;
       }
     }
@@ -185,7 +230,7 @@ function draw() {
   let removedAny = false;
   for (const task of ordered) {
     const isLeader = showLeader && task.id === leaderId;
-    if (pipActive) task.drawProgress(ctx, activeRoute, t, now, isLeader);
+    if (pipActive) task.drawProgress(ctx, activeRoute, t, now, isLeader, storm);
     else task.draw(ctx, activeRoute, t, now, isLeader, storm);
     if (task.finished) removedAny = true;
   }
@@ -197,7 +242,7 @@ function draw() {
   // has to stay in sync with the render loop, not just with socket events
   updateHud();
 
-  if (!pipActive) scene.drawSnow(ctx, t, dt);
+  scene.drawSnow(ctx, t, dt);
 
   requestAnimationFrame(draw);
 }
@@ -221,7 +266,14 @@ pipBtn.addEventListener('click', async () => {
   pipBtn.style.display = 'none';
   pipActive = true;
   resize();
-  pipWindow.addEventListener('resize', resize);
+  // wind gusts and snowflakes are positioned relative to canvas size at the
+  // last resize() call - without this they'd keep the main page's (much
+  // larger) layout and drift off-screen in the small pip window
+  scene.resize();
+  pipWindow.addEventListener('resize', () => {
+    resize();
+    scene.resize();
+  });
 
   pipWindow.addEventListener('pagehide', () => {
     document.body.append(hud);

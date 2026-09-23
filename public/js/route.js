@@ -95,3 +95,36 @@ export class SideRoute {
     return { x: x + (-dy / len) * lateralOffset, y: y + (dx / len) * lateralOffset };
   }
 }
+
+// a "camera" onto a [lo, hi] slice of a base route's 0..1 progress range,
+// stretched to fill the same canvas span the base route uses - so the
+// widget can follow whoever's in the lead up close instead of always
+// showing the full camp-to-peak journey shrunk down. Positions outside
+// [lo, hi] clamp to the nearest edge (the base route already clamps),
+// which reads as "off the edge of frame" rather than disappearing.
+export class CameraRoute {
+  // shift is an optional (progress) => {x, y} ground displacement, so things
+  // riding the route follow a bumpy surface instead of a straight line
+  constructor(base, lo, hi, shift = null) {
+    this.base = base;
+    this.lo = lo;
+    this.hi = hi;
+    this.shift = shift;
+  }
+
+  pointAt(progress, lateralOffset = 0) {
+    const span = this.hi - this.lo || 1e-6;
+    const pt = this.base.pointAt((progress - this.lo) / span, lateralOffset);
+    if (!this.shift) return pt;
+    const d = this.shift(progress);
+    return { x: pt.x + d.x, y: pt.y + d.y };
+  }
+
+  anchor(wp) {
+    return this.pointAt(wp.p, 0);
+  }
+
+  anchors() {
+    return WAYPOINTS.map((wp) => ({ wp, pos: this.anchor(wp) }));
+  }
+}
