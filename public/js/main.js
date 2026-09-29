@@ -107,6 +107,11 @@ function updateHud() {
   hud.innerHTML = `şu an <b>${active}</b> civciv çalışıyor<small>bugün ${ghostsToday} ruh yükseldi · toplam ${ghostsAllTime}</small>`;
 }
 
+// palette colors already on the mountain, so a newcomer gets a different one
+function takenColors() {
+  return new Set([...tasks.values()].filter((task) => task.state !== 'ascending').map((task) => task.look.colorIdx));
+}
+
 new NetworkClient((msg) => {
   const now = Date.now();
   if (msg.type === 'snapshot') {
@@ -114,7 +119,7 @@ new NetworkClient((msg) => {
     for (const s of msg.active) {
       // already-active sessions from before this viewer connected - drop them
       // straight into climbing, skipping the "just spawned" arrival beat
-      const task = new Task(s.id, s.x, s.y * Math.PI * 2, now);
+      const task = new Task(s.id, s.x, s.y * Math.PI * 2, now, takenColors());
       task.state = 'climbing';
       task.since = now;
       tasks.set(s.id, task);
@@ -122,7 +127,7 @@ new NetworkClient((msg) => {
     ghostsToday = msg.ghostsToday || 0;
     ghostsAllTime = msg.ghostsAllTime || 0;
   } else if (msg.type === 'join') {
-    const task = new Task(msg.id, msg.x, msg.y * Math.PI * 2, now);
+    const task = new Task(msg.id, msg.x, msg.y * Math.PI * 2, now, takenColors());
     tasks.set(msg.id, task);
     soundEngine.playJoin(task.orbHue);
   } else if (msg.type === 'activity') {

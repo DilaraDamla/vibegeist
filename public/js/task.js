@@ -1,7 +1,7 @@
 import { drawChick, drawContactShadow } from './chick.js';
 import { drawOrb, drawOrbShadow, drawOrbTrail, drawOrbBurst } from './orb.js';
 import { drawSpirit } from './spirit.js';
-import { pickAccessory } from './accessories.js';
+import { pickLook } from './look.js';
 import { WAYPOINTS } from './route.js';
 
 const ARRIVE_MS = 700;
@@ -35,14 +35,15 @@ function jewelHue(frac) {
 // positions come from (the route, not a bare lerp) and how much the world
 // reacts around them has grown.
 export class Task {
-  constructor(id, laneX, phase, now) {
+  // takenColors: palette indexes worn by the chicks already on the mountain
+  constructor(id, laneX, phase, now, takenColors = new Set()) {
     this.id = id;
     this.laneX = laneX;
     this.phase = phase;
     this.lateralOffset = (laneX - 0.5) * 34;
-    this.chickHue = jewelHue(phase / (Math.PI * 2));
+    this.look = pickLook(id, takenColors);
+    this.chickHue = this.look.hue;
     this.orbHue = jewelHue(phase / (Math.PI * 2) + 0.35);
-    this.accessory = pickAccessory(phase);
 
     this.state = 'arriving';
     this.since = now;
@@ -149,7 +150,12 @@ export class Task {
       return;
     }
 
-    const progress = this.state === 'placing' ? 1 : this.state === 'arriving' ? 0 : this.climbed;
+    // the widget has no lanes (lateral offset would sink chicks into the
+    // rock), so chicks at the same progress - everyone who just started -
+    // stood exactly on top of each other. A small forward stagger by lane
+    // keeps each one visible without noticeably distorting the race.
+    const stagger = this.laneX * 0.024;
+    const progress = this.state === 'placing' ? 1 : Math.min(1, (this.state === 'arriving' ? 0 : this.climbed) + stagger);
     const pos = route.pointAt(progress, 0);
     const ahead = route.pointAt(Math.min(progress + 0.05, 1), 0);
     const facingLeft = ahead.x - pos.x < 0;
@@ -173,9 +179,11 @@ export class Task {
       drawChick(ctx, pos.x, pos.y, {
         bodyR,
         hue: this.chickHue,
+        look: this.look,
         walkPhase,
         facingLeft: false,
         armsRaised: frac > 0.35,
+        happy: frac > 0.35,
         isLeader,
         t,
       });
@@ -199,10 +207,12 @@ export class Task {
     drawChick(ctx, px, pos.y, {
       bodyR,
       hue: this.chickHue,
+      look: this.look,
       walkPhase,
       facingLeft,
       pushing: true,
       reachToward: { x: Math.abs(groundPt.x - px) * 0.45, y: orbY - pos.y },
+      sweat: storm,
       isLeader,
       t,
     });
@@ -255,7 +265,7 @@ export class Task {
       walkPhase,
       facingLeft: startOffset > 1,
       idleFlap: Math.sin(t * 2.4 + this.phase) * 0.15,
-      accessory: this.accessory,
+      look: this.look,
       isLeader,
       t,
     });
@@ -360,7 +370,8 @@ export class Task {
       // local space relative to the chick's feet (the draw origin), always a
       // forward-positive x since the whole chick gets mirrored as a group
       reachToward: { x: reachDX * reachFrac, y: reachDY * reachFrac },
-      accessory: this.accessory,
+      look: this.look,
+      sweat: waiting ? 0 : storm,
       isLeader,
       t,
     });
@@ -395,8 +406,9 @@ export class Task {
       walkPhase: t * 0.6 + this.phase,
       facingLeft: false,
       armsRaised: frac > 0.35,
+      happy: frac > 0.35,
       idleFlap: Math.sin(t * 2.4 + this.phase) * 0.15,
-      accessory: this.accessory,
+      look: this.look,
       isLeader,
       t,
     });

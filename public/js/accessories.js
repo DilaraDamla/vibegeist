@@ -1,100 +1,76 @@
-import { hashRand } from './utils.js';
-
-const NAMES = ['lantern', 'map', 'compass', 'backpack', 'cape', 'pickaxe'];
-
-// one accessory per task, deterministic from its seed - a small, legible prop
-// rather than a costume change, so each chick reads as an individual without
-// the character design getting busy
-export function pickAccessory(phase) {
-  const i = Math.floor(hashRand(Math.floor(phase * 1000) + 42) * NAMES.length) % NAMES.length;
-  return NAMES[i];
-}
-
+// one hat per chick (or none), sized off bodyR so it stays legible even at
+// widget scale - the earlier props (lantern, map, compass...) were a few px
+// across and disappeared entirely in the small window.
+//
 // drawn in the chick's local "facing right, feet at origin" space, after the
-// body but before restore - bodyCy is the body center's local y (negative)
-export function drawAccessory(ctx, name, bodyR, bodyCy, hue, t) {
-  const accentColor = `hsl(${(hue + 30) % 360}, 70%, 55%)`;
+// face - bodyCy is the body center's local y (negative), the head top sits
+// at bodyCy - bodyR. Returns how far the hat reaches above the head top, so
+// the leader crown can float above it instead of clipping into it.
+export function drawHat(ctx, name, bodyR, bodyCy, color, t) {
+  const R = bodyR;
+  const top = bodyCy - R;
 
-  if (name === 'lantern') {
-    const hx = -bodyR * 1.3;
-    const hy = bodyCy + bodyR * 0.4;
-    ctx.strokeStyle = accentColor;
-    ctx.lineWidth = 1.2;
+  if (name === 'beanie') {
+    ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.moveTo(-bodyR * 0.6, bodyCy + bodyR * 0.3);
-    ctx.lineTo(hx, hy);
-    ctx.stroke();
-    const flick = 0.75 + 0.25 * Math.sin(t * 8);
-    const glow = ctx.createRadialGradient(hx, hy, 0, hx, hy, 7 * flick);
-    glow.addColorStop(0, `rgba(255,200,120,${0.6 * flick})`);
-    glow.addColorStop(1, 'rgba(255,200,120,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(hx, hy, 7 * flick, 0, Math.PI * 2);
+    ctx.ellipse(0, bodyCy - R * 0.66, R * 0.74, R * 0.5, 0, Math.PI, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#3a2e22';
+    // folded brim - sits above the eye line, not over it
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(-R * 0.76, bodyCy - R * 0.76, R * 1.52, R * 0.12);
+    ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(hx, hy, 2.6, 0, Math.PI * 2);
+    ctx.arc(0, top - R * 0.16, R * 0.18, 0, Math.PI * 2);
     ctx.fill();
-  } else if (name === 'map') {
-    ctx.save();
-    ctx.translate(-bodyR * 0.7, bodyCy - bodyR * 0.1);
-    ctx.rotate(-0.5);
-    ctx.fillStyle = '#e8d9b0';
-    ctx.fillRect(-1.5, -6, 3, 12);
-    ctx.strokeStyle = '#b89a5e';
-    ctx.lineWidth = 0.8;
-    ctx.strokeRect(-1.5, -6, 3, 12);
-    ctx.restore();
-  } else if (name === 'compass') {
-    const cx = bodyR * 0.15;
-    const cy = bodyCy + bodyR * 0.35;
-    ctx.fillStyle = '#d8c58a';
-    ctx.beginPath();
-    ctx.arc(cx, cy, 2.6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#8a4a3a';
-    ctx.lineWidth = 0.8;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - 1.8);
-    ctx.lineTo(cx, cy + 1.8);
-    ctx.stroke();
-  } else if (name === 'backpack') {
-    ctx.fillStyle = accentColor;
-    ctx.beginPath();
-    ctx.ellipse(-bodyR * 0.8, bodyCy + bodyR * 0.15, bodyR * 0.45, bodyR * 0.55, 0.2, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (name === 'cape') {
-    const sway = Math.sin(t * 2) * 0.15;
-    ctx.save();
-    ctx.translate(-bodyR * 0.5, bodyCy - bodyR * 0.6);
-    ctx.rotate(0.3 + sway);
-    ctx.fillStyle = accentColor;
-    ctx.globalAlpha = 0.75;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(-bodyR * 0.3, bodyR * 1.6);
-    ctx.lineTo(bodyR * 0.5, bodyR * 1.5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.restore();
-  } else if (name === 'pickaxe') {
-    ctx.save();
-    ctx.translate(-bodyR * 0.7, bodyCy - bodyR * 0.9);
-    ctx.rotate(-0.7);
-    ctx.strokeStyle = '#7a5c3e';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(0, -8);
-    ctx.lineTo(0, 6);
-    ctx.stroke();
-    ctx.strokeStyle = '#9098a4';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-5, -8);
-    ctx.lineTo(5, -8);
-    ctx.stroke();
-    ctx.restore();
+    return R * 0.34;
   }
+
+  if (name === 'bandana') {
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = R * 0.24;
+    ctx.beginPath();
+    ctx.moveTo(-R * 0.78, bodyCy - R * 0.6);
+    ctx.lineTo(R * 0.72, bodyCy - R * 0.74);
+    ctx.stroke();
+    // two knot tails flapping out behind the head
+    const flap = Math.sin(t * 6) * R * 0.12;
+    ctx.lineWidth = R * 0.14;
+    ctx.beginPath();
+    ctx.moveTo(-R * 0.78, bodyCy - R * 0.6);
+    ctx.lineTo(-R * 1.3, bodyCy - R * 0.72 + flap);
+    ctx.moveTo(-R * 0.78, bodyCy - R * 0.6);
+    ctx.lineTo(-R * 1.22, bodyCy - R * 0.4 - flap);
+    ctx.stroke();
+    return 0;
+  }
+
+  if (name === 'tophat') {
+    ctx.fillStyle = '#26202e';
+    ctx.fillRect(-R * 0.55, top + R * 0.02, R * 1.1, R * 0.14);
+    ctx.fillRect(-R * 0.34, top - R * 0.6, R * 0.68, R * 0.64);
+    ctx.fillStyle = color;
+    ctx.fillRect(-R * 0.34, top - R * 0.12, R * 0.68, R * 0.14);
+    return R * 0.62;
+  }
+
+  if (name === 'flower') {
+    const fx = R * 0.2;
+    const fy = top + R * 0.08;
+    const sway = Math.sin(t * 2) * 0.2;
+    ctx.fillStyle = color;
+    for (let i = 0; i < 5; i++) {
+      const a = sway + (i / 5) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(fx + Math.cos(a) * R * 0.17, fy + Math.sin(a) * R * 0.17, R * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#ffe066';
+    ctx.beginPath();
+    ctx.arc(fx, fy, R * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    return R * 0.2;
+  }
+
+  return 0;
 }

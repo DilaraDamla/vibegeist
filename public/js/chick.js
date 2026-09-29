@@ -1,11 +1,14 @@
-import { drawAccessory } from './accessories.js';
+import { drawHat } from './accessories.js';
 
 // a hand-drawn chick instead of a static emoji, so the legs can actually swing -
 // no emoji glyph has walk-cycle frames, which is why every emoji-based attempt
 // at "walking" kept reading as sliding, hopping, or swaying instead.
 //
-// opts: { bodyR, hue, walkPhase, facingLeft, bump, armsRaised, pushing, strain,
-// reachToward, accessory, isLeader, sitting, eating }
+// opts: { bodyR, hue, look, walkPhase, facingLeft, bump, armsRaised, pushing,
+// strain, reachToward, isLeader, sitting, eating, happy, sweat }
+// look: the chick's character from look.js (colors, tuft, eyes, hat) - when
+// absent it falls back to plain hue-derived colors and the default face.
+// happy: closed ^^ eyes (summit). sweat: 0..1, a bead of sweat in a storm.
 // reachToward: {x,y} in the chick's local "facing right" space to reach an arm
 // (or, while pushing, both arms) toward the sphere, or null for a relaxed arm.
 // sitting: a relaxed, upright, legs-tucked idle pose (for when there's
@@ -21,24 +24,28 @@ export function drawChick(ctx, px, groundY, opts) {
     pushing = false,
     strain = 0,
     reachToward = null,
-    accessory = null,
+    look = null,
     isLeader = false,
     sitting = false,
     eating = false,
+    happy = false,
+    sweat = 0,
     t = 0,
   } = opts;
-  const bodyColor = `hsl(${hue}, 62%, 72%)`;
-  const beakColor = `hsl(${(hue + 30) % 360}, 75%, 58%)`;
+  const bodyColor = look ? look.body : `hsl(${hue}, 62%, 72%)`;
+  const beakColor = look ? look.accent : `hsl(${(hue + 30) % 360}, 75%, 58%)`;
+  const hat = look ? look.hat : 'none';
   const legL = bodyR;
 
   ctx.save();
   ctx.translate(px, groundY);
   // lean forward into the climb, before mirroring - defined in "facing right"
   // space so it always leans the same way no matter which way it's mirrored.
-  // Pushing leans in hard, with a small per-stride surge as it drives into
-  // the sphere - a raised-arms celebration and just sitting around both need
-  // no lean at all.
-  ctx.rotate(armsRaised || sitting ? 0 : pushing ? 0.36 + strain : 0.16);
+  // Kept small on purpose: a hard lean plus the wide body read as the chick
+  // lying flat and swimming up the slope - it should stand on its feet, only
+  // nodding into each push. A raised-arms celebration and just sitting
+  // around both need no lean at all.
+  ctx.rotate(armsRaised || sitting ? 0 : pushing ? 0.1 + strain * 0.5 : 0.05);
   if (facingLeft) ctx.scale(-1, 1);
 
   let bodyCy;
@@ -54,7 +61,7 @@ export function drawChick(ctx, px, groundY, opts) {
     ctx.moveTo(bodyR * 0.35, -bodyR * 0.3);
     ctx.lineTo(bodyR * 0.35, 0);
     ctx.stroke();
-    bodyCy = -bodyR * 0.8;
+    bodyCy = -bodyR * 0.95;
   } else {
     // legs: two lines swinging in opposite phase - a real scissor gait
     ctx.strokeStyle = beakColor;
@@ -70,7 +77,7 @@ export function drawChick(ctx, px, groundY, opts) {
       ctx.lineTo(footX, footY);
       ctx.stroke();
     }
-    bodyCy = -legL - bodyR * 0.7;
+    bodyCy = -legL - bodyR * 0.85;
   }
 
   // arm(s): reaching toward the carried orb, or both raised for the summit
@@ -110,7 +117,8 @@ export function drawChick(ctx, px, groundY, opts) {
   // body
   ctx.fillStyle = bodyColor;
   ctx.beginPath();
-  ctx.ellipse(0, bodyCy, bodyR, bodyR * 0.85, 0, 0, Math.PI * 2);
+  // an upright egg (taller than wide) - a wide one read as a body lying down
+  ctx.ellipse(0, bodyCy, bodyR * 0.88, bodyR, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // pushing arms are drawn AFTER the body, not with the other arm poses
@@ -128,14 +136,8 @@ export function drawChick(ctx, px, groundY, opts) {
     }
   }
 
-  // fluffy head tuft
-  ctx.strokeStyle = beakColor;
-  ctx.lineWidth = 1.4;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(-bodyR * 0.1, bodyCy - bodyR * 0.95);
-  ctx.quadraticCurveTo(-bodyR * 0.45, bodyCy - bodyR * 1.5, bodyR * 0.05, bodyCy - bodyR * 1.15);
-  ctx.stroke();
+  // head tuft - hidden under the hats that cover the crown of the head
+  if (hat !== 'beanie' && hat !== 'tophat') drawTuft(ctx, look ? look.tuft : 'curl', bodyR, bodyCy, beakColor);
 
   // beak, pointing the way it's facing
   ctx.fillStyle = beakColor;
@@ -182,27 +184,34 @@ export function drawChick(ctx, px, groundY, opts) {
   ctx.arc(bodyR * 0.4, bodyCy - bodyR * 0.05, bodyR * 0.22, 0, Math.PI * 2);
   ctx.fill();
 
-  // eye - white, pupil, and a little highlight dot for actual expression
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(bodyR * 0.3, bodyCy - bodyR * 0.45, bodyR * 0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#20140a';
-  ctx.beginPath();
-  ctx.arc(bodyR * 0.38, bodyCy - bodyR * 0.45, bodyR * 0.18, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(bodyR * 0.48, bodyCy - bodyR * 0.55, bodyR * 0.08, 0, Math.PI * 2);
-  ctx.fill();
+  drawEye(ctx, happy ? 'happy' : look ? look.eyes : 'default', bodyR, bodyCy, bodyColor);
 
-  if (accessory) drawAccessory(ctx, accessory, bodyR, bodyCy, hue, t);
+  if (sweat > 0.05) {
+    // a bead that slides down the back of the head and restarts
+    const slide = (t * 0.8) % 1;
+    const sx = -bodyR * 0.35;
+    const sy = bodyCy - bodyR * 0.95 + slide * bodyR * 0.5;
+    const sr = bodyR * 0.17;
+    ctx.globalAlpha = Math.min(1, sweat * 1.4) * (1 - slide * 0.6);
+    ctx.fillStyle = '#6cc8ff';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = Math.max(0.8, bodyR * 0.06);
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI);
+    ctx.lineTo(sx, sy - sr * 2.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  const hatLift = look ? drawHat(ctx, hat, bodyR, bodyCy, look.hatColor, t) : 0;
 
   // leader crown: whoever is furthest along the climb gets this, so "who's
   // winning" reads at a glance without any text - a small gold zigzag with
   // a gem, floating just above the head tuft where no accessory ever sits
   if (isLeader) {
-    const cy = bodyCy - bodyR * 1.35 - Math.sin(t * 3) * bodyR * 0.06;
+    const cy = bodyCy - bodyR * 1.35 - hatLift - Math.sin(t * 3) * bodyR * 0.06;
     const cw = bodyR * 0.5;
     ctx.fillStyle = '#ffd54a';
     ctx.beginPath();
@@ -236,4 +245,126 @@ export function drawContactShadow(ctx, px, groundY, scale = 1) {
   ctx.ellipse(px, groundY + 12 * scale, 10 * scale, 3 * scale, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
+}
+
+function drawTuft(ctx, type, R, cy, color) {
+  const top = cy - R * 0.95;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = Math.max(1.2, R * 0.11);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (type === 'spikes') {
+    for (const dx of [-0.28, 0, 0.26]) {
+      ctx.moveTo(dx * R, top + R * 0.05);
+      ctx.lineTo(dx * R * 1.5, top - R * 0.42);
+    }
+    ctx.stroke();
+  } else if (type === 'mohawk') {
+    ctx.moveTo(-R * 0.5, top + R * 0.12);
+    const peaks = [-0.38, -0.12, 0.14];
+    for (const px of peaks) {
+      ctx.lineTo(px * R, top - R * 0.45);
+      ctx.lineTo((px + 0.13) * R, top - R * 0.02);
+    }
+    ctx.lineTo(R * 0.3, top + R * 0.1);
+    ctx.closePath();
+    ctx.fill();
+  } else if (type === 'messy') {
+    ctx.moveTo(-R * 0.2, top);
+    ctx.quadraticCurveTo(-R * 0.65, top - R * 0.45, -R * 0.1, top - R * 0.3);
+    ctx.moveTo(0, top);
+    ctx.quadraticCurveTo(R * 0.1, top - R * 0.6, R * 0.35, top - R * 0.25);
+    ctx.moveTo(-R * 0.05, top);
+    ctx.quadraticCurveTo(-R * 0.2, top - R * 0.55, R * 0.05, top - R * 0.5);
+    ctx.stroke();
+  } else {
+    // curl - the original single fluffy tuft
+    ctx.moveTo(-R * 0.1, top);
+    ctx.quadraticCurveTo(-R * 0.45, cy - R * 1.5, R * 0.05, cy - R * 1.15);
+    ctx.stroke();
+  }
+}
+
+function drawEye(ctx, type, R, cy, bodyColor) {
+  const ex = R * 0.3;
+  const ey = cy - R * 0.45;
+  const dark = '#20140a';
+
+  if (type === 'happy') {
+    // closed, smiling ^ - the summit face
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = Math.max(1.2, R * 0.12);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(ex - R * 0.2, ey + R * 0.06);
+    ctx.lineTo(ex, ey - R * 0.14);
+    ctx.lineTo(ex + R * 0.2, ey + R * 0.06);
+    ctx.stroke();
+    return;
+  }
+
+  if (type === 'curious') {
+    // small beady eye with a raised brow - no white, reads as "hm?"
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.arc(ex + R * 0.06, ey, R * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(ex + R * 0.11, ey - R * 0.06, R * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = Math.max(1, R * 0.08);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(ex + R * 0.06, ey - R * 0.1, R * 0.25, Math.PI * 1.2, Math.PI * 1.8);
+    ctx.stroke();
+    return;
+  }
+
+  const big = type === 'sparkle';
+  const whiteR = R * (big ? 0.36 : 0.3);
+  const pupilR = R * (big ? 0.22 : 0.18);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(ex, ey, whiteR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = dark;
+  ctx.beginPath();
+  ctx.arc(ex + R * 0.08, ey, pupilR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(ex + R * 0.18, ey - R * 0.1, R * (big ? 0.1 : 0.08), 0, Math.PI * 2);
+  ctx.fill();
+  if (big) {
+    ctx.beginPath();
+    ctx.arc(ex + R * 0.0, ey + R * 0.1, R * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (type === 'sleepy') {
+    // heavy upper lid in the body color, covering the top half of the eye
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.arc(ex, ey, whiteR + 0.5, Math.PI, Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = Math.max(1, R * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(ex - whiteR, ey);
+    ctx.lineTo(ex + whiteR, ey);
+    ctx.stroke();
+  } else if (type === 'determined') {
+    // brow slanting down toward the beak
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = Math.max(1.2, R * 0.11);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(ex - R * 0.25, ey - R * 0.42);
+    ctx.lineTo(ex + R * 0.28, ey - R * 0.26);
+    ctx.stroke();
+  }
 }
