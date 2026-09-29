@@ -4,6 +4,7 @@ interface SessionInfo {
   x: number;
   y: number;
   lastSeen: number;
+  name?: string;
 }
 
 interface Env {
@@ -18,6 +19,14 @@ async function hashId(raw: string): Promise<string> {
   const bytes = new TextEncoder().encode(raw);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+}
+
+// anyone can POST here, so the name is re-cleaned server-side no matter what
+// the hook sent: first word only, letters/digits, at most 12 characters
+function cleanName(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const word = raw.normalize("NFC").trim().split(/\s+/)[0] ?? "";
+  return [...word.replace(/[^\p{L}\p{N}]/gu, "")].slice(0, 12).join("");
 }
 
 function seededPos(id: string): { x: number; y: number } {
@@ -82,7 +91,7 @@ export class VibegeistWorld extends DurableObject<Env> {
     pair[1].send(
       JSON.stringify({
         type: "snapshot",
-        active: [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y })),
+        active: [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name || undefined })),
         ghostsToday: this.ghostsToday,
         ghostsAllTime: this.ghostsAllTime,
       })
@@ -90,16 +99,17 @@ export class VibegeistWorld extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
-  async reportEvent(sessionId: string, type: string): Promise<{ ok: boolean }> {
+  async reportEvent(sessionId: string, type: string, rawName?: unknown): Promise<{ ok: boolean }> {
     await this.ready;
     await this.resetDayIfNeeded();
     const id = await hashId(sessionId);
+    const name = cleanName(rawName) || undefined;
 
     if (type === "join") {
       const pos = seededPos(id);
-      this.sessions.set(id, { ...pos, lastSeen: Date.now() });
+      this.sessions.set(id, { ...pos, lastSeen: Date.now(), name });
       await this.persistSessions();
-      this.broadcast({ type: "join", id, ...pos, active: this.sessions.size });
+      this.broadcast({ type: "join", id, ...pos, name, active: this.sessions.size });
       const alarm = await this.ctx.storage.getAlarm();
       if (!alarm) await this.ctx.storage.setAlarm(Date.now() + 60_000);
     } else if (type === "activity") {
@@ -108,10 +118,10 @@ export class VibegeistWorld extends DurableObject<Env> {
         // hook was installed mid-session, so no "join" ever fired for it -
         // treat the first activity ping as an implicit join instead of dropping it
         const pos = seededPos(id);
-        s = { ...pos, lastSeen: Date.now() };
+        s = { ...pos, lastSeen: Date.now(), name };
         this.sessions.set(id, s);
         await this.persistSessions();
-        this.broadcast({ type: "join", id, ...pos, active: this.sessions.size });
+        this.broadcast({ type: "join", id, ...pos, name, active: this.sessions.size });
         const alarm = await this.ctx.storage.getAlarm();
         if (!alarm) await this.ctx.storage.setAlarm(Date.now() + 60_000);
       } else {
@@ -139,14 +149,14 @@ export class VibegeistWorld extends DurableObject<Env> {
   }
 
   async getState(): Promise<{
-    active: { id: string; x: number; y: number }[];
+    active: { id: string; x: number; y: number; name?: string }[];
     ghostsToday: number;
     ghostsAllTime: number;
   }> {
     await this.ready;
     await this.resetDayIfNeeded();
     return {
-      active: [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y })),
+      active: [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name || undefined })),
       ghostsToday: this.ghostsToday,
       ghostsAllTime: this.ghostsAllTime,
     };

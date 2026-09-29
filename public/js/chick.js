@@ -205,6 +205,7 @@ export function drawChick(ctx, px, groundY, opts) {
     ctx.globalAlpha = 1;
   }
 
+  let headTop;
   const hatLift = look ? drawHat(ctx, hat, bodyR, bodyCy, look.hatColor, t) : 0;
 
   // leader crown: whoever is furthest along the climb gets this, so "who's
@@ -232,10 +233,13 @@ export function drawChick(ctx, px, groundY, opts) {
     ctx.arc(0, cy - bodyR * 0.12, bodyR * 0.11, 0, Math.PI * 2);
     ctx.fill();
   }
+  // how high above the feet the chick reaches (hat and crown included), so
+  // a name label can float just over it - the lean is small enough to ignore
+  headTop = bodyCy - bodyR * (isLeader ? 1.65 : 1.15) - hatLift;
 
   ctx.restore();
 
-  return { bodyCy: groundY + bodyCy };
+  return { bodyCy: groundY + bodyCy, headY: groundY + headTop };
 }
 
 export function drawContactShadow(ctx, px, groundY, scale = 1) {

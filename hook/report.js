@@ -3,11 +3,27 @@
 // and reports one anonymized event to the vibegeist server. Never throws —
 // a reporting failure must never break the user's Claude Code session.
 
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const SERVER_URL = process.env.VIBEGEIST_SERVER || 'https://vibegeist.dayloop-dilara.workers.dev';
 const EVENT_TYPE = process.argv[2]; // 'join' | 'activity' | 'ghost'
 const DEBUG_LOG = process.env.VIBEGEIST_DEBUG_LOG; // unset by default; set to a file path to debug hook firing
+
+// the name shown above your chick: the first word of your Claude account's
+// display name (never the email or full name). VIBEGEIST_NAME overrides it,
+// VIBEGEIST_NAME=off hides it. The server cleans it up again anyway.
+function chickName() {
+  const override = process.env.VIBEGEIST_NAME;
+  if (override !== undefined) return override.trim().toLowerCase() === 'off' ? '' : override;
+  try {
+    const cfg = JSON.parse(readFileSync(join(homedir(), '.claude.json'), 'utf8'));
+    return cfg.oauthAccount?.displayName || '';
+  } catch {
+    return '';
+  }
+}
 
 function debugLog(line) {
   if (!DEBUG_LOG) return;
@@ -36,7 +52,7 @@ process.stdin.on('end', async () => {
     const res = await fetch(`${SERVER_URL}/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, type: EVENT_TYPE }),
+      body: JSON.stringify({ sessionId, type: EVENT_TYPE, name: EVENT_TYPE === 'ghost' ? undefined : chickName() }),
       signal: AbortSignal.timeout(2000),
     });
     debugLog(`sent ok, status=${res.status}`);

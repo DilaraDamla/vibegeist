@@ -38,6 +38,14 @@ function hashId(raw) {
 }
 
 // deterministic pseudo-random position derived from the hashed id
+// anyone can POST here, so the name is re-cleaned server-side no matter what
+// the hook sent: first word only, letters/digits, at most 12 characters
+function cleanName(raw) {
+  if (typeof raw !== 'string') return '';
+  const word = raw.normalize('NFC').trim().split(/\s+/)[0] ?? '';
+  return [...word.replace(/[^\p{L}\p{N}]/gu, '')].slice(0, 12).join('');
+}
+
 function seededPos(id) {
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -71,24 +79,25 @@ const server = createServer((req, res) => {
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => {
       try {
-        const { sessionId, type } = JSON.parse(body || '{}');
+        const { sessionId, type, name: rawName } = JSON.parse(body || '{}');
+        const name = cleanName(rawName) || undefined;
         if (!sessionId || !type) throw new Error('missing fields');
         resetDayIfNeeded();
         const id = hashId(sessionId);
 
         if (type === 'join') {
           const pos = seededPos(id);
-          sessions.set(id, { ...pos, joinedAt: Date.now(), lastSeen: Date.now() });
-          broadcast({ type: 'join', id, ...pos, active: sessions.size });
+          sessions.set(id, { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name });
+          broadcast({ type: 'join', id, ...pos, name, active: sessions.size });
         } else if (type === 'activity') {
           let s = sessions.get(id);
           if (!s) {
             // hook installed mid-session: no "join" ever fired, so treat the
             // first activity ping as an implicit join instead of dropping it
             const pos = seededPos(id);
-            s = { ...pos, joinedAt: Date.now(), lastSeen: Date.now() };
+            s = { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name };
             sessions.set(id, s);
-            broadcast({ type: 'join', id, ...pos, active: sessions.size });
+            broadcast({ type: 'join', id, ...pos, name, active: sessions.size });
           } else {
             s.lastSeen = Date.now();
           }
@@ -115,7 +124,7 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
-        active: [...sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y })),
+        active: [...sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name })),
         ghostsToday,
         ghostsAllTime,
       })
@@ -134,7 +143,7 @@ wss.on('connection', (ws) => {
   ws.send(
     JSON.stringify({
       type: 'snapshot',
-      active: [...sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y })),
+      active: [...sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name })),
       ghostsToday,
       ghostsAllTime,
     })

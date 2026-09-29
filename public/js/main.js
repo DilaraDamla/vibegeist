@@ -119,7 +119,7 @@ new NetworkClient((msg) => {
     for (const s of msg.active) {
       // already-active sessions from before this viewer connected - drop them
       // straight into climbing, skipping the "just spawned" arrival beat
-      const task = new Task(s.id, s.x, s.y * Math.PI * 2, now, takenColors());
+      const task = new Task(s.id, s.x, s.y * Math.PI * 2, now, takenColors(), s.name);
       task.state = 'climbing';
       task.since = now;
       tasks.set(s.id, task);
@@ -127,7 +127,7 @@ new NetworkClient((msg) => {
     ghostsToday = msg.ghostsToday || 0;
     ghostsAllTime = msg.ghostsAllTime || 0;
   } else if (msg.type === 'join') {
-    const task = new Task(msg.id, msg.x, msg.y * Math.PI * 2, now, takenColors());
+    const task = new Task(msg.id, msg.x, msg.y * Math.PI * 2, now, takenColors(), msg.name);
     tasks.set(msg.id, task);
     soundEngine.playJoin(task.orbHue);
   } else if (msg.type === 'activity') {
@@ -239,6 +239,8 @@ function draw() {
     else task.draw(ctx, activeRoute, t, now, isLeader, storm);
     if (task.finished) removedAny = true;
   }
+  const placedLabels = [];
+  for (const task of ordered) task.drawLabel(ctx, placedLabels);
   if (removedAny) {
     for (const [id, task] of tasks) if (task.finished) tasks.delete(id);
   }

@@ -16,11 +16,11 @@ export default {
 
     if (url.pathname === "/event" && request.method === "POST") {
       try {
-        const body = await request.json<{ sessionId?: string; type?: string }>();
+        const body = await request.json<{ sessionId?: string; type?: string; name?: unknown }>();
         if (!body.sessionId || !body.type) {
           return Response.json({ ok: false, error: "missing fields" }, { status: 400 });
         }
-        const result = await stub.reportEvent(body.sessionId, body.type);
+        const result = await stub.reportEvent(body.sessionId, body.type, body.name);
         return Response.json(result);
       } catch (err) {
         return Response.json({ ok: false, error: String(err) }, { status: 400 });

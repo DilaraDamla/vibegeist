@@ -36,8 +36,11 @@ function jewelHue(frac) {
 // reacts around them has grown.
 export class Task {
   // takenColors: palette indexes worn by the chicks already on the mountain
-  constructor(id, laneX, phase, now, takenColors = new Set()) {
+  constructor(id, laneX, phase, now, takenColors = new Set(), name = '') {
     this.id = id;
+    this.name = name;
+    // where this frame's chick was drawn, for the name label (null = not drawn)
+    this.labelAt = null;
     this.laneX = laneX;
     this.phase = phase;
     this.lateralOffset = (laneX - 0.5) * 34;
@@ -119,6 +122,7 @@ export class Task {
   }
 
   draw(ctx, route, t, now, isLeader = false, storm = 0) {
+    this.labelAt = null;
     if (this.state === 'arriving') this.drawArriving(ctx, route, t, isLeader);
     else if (this.state === 'climbing' || this.state === 'summiting') this.drawClimbing(ctx, route, t, now, isLeader, storm);
     else if (this.state === 'placing') this.drawPlacing(ctx, route, t, now, isLeader);
@@ -130,6 +134,7 @@ export class Task {
   // dropped - the widget should read as the same world zoomed out, not a
   // separate abstract progress indicator.
   drawProgress(ctx, route, t, now, isLeader = false, storm = 0) {
+    this.labelAt = null;
     const scale = WIDGET_SCALE;
     // a short pop right after overtaking another task - the widget's only
     // stand-in for the main view's activity-pulse bump, since a small
@@ -176,7 +181,7 @@ export class Task {
       // the one-shot summit burst, scaled down to fit the widget - without
       // this the widget's summit moment was just a shrinking orb, no payoff
       if (elapsed < BURST_MS) drawOrbBurst(ctx, orbX, orbY, this.orbHue, elapsed / BURST_MS);
-      drawChick(ctx, pos.x, pos.y, {
+      this.drawChickAt(ctx, pos.x, pos.y, {
         bodyR,
         hue: this.chickHue,
         look: this.look,
@@ -204,7 +209,7 @@ export class Task {
     const orbY = groundPt.y - orbR;
     drawOrbShadow(ctx, groundPt.x, groundPt.y, orbR);
     drawOrb(ctx, groundPt.x, orbY, orbR, this.orbHue, t, this.phase, 1, this.climbed);
-    drawChick(ctx, px, pos.y, {
+    this.drawChickAt(ctx, px, pos.y, {
       bodyR,
       hue: this.chickHue,
       look: this.look,
@@ -221,6 +226,46 @@ export class Task {
   // lights up the actual landmark just passed (its real position on the
   // mountain, not the task's own lane) - a soft glow plus an expanding
   // ring, like the place itself is answering "yes, you were here"
+  drawChickAt(ctx, px, groundY, opts) {
+    const { headY } = drawChick(ctx, px, groundY, opts);
+    this.labelAt = { x: px, y: headY, r: opts.bodyR };
+  }
+
+  // the player's name in a small pill over the chick - drawn by main.js after
+  // every chick, so a label is never hidden behind another climber
+  // placed: labels already drawn this frame - chicks bunched together at camp
+  // would stack their names into an unreadable smear, so this one steps up
+  // above any label it would overlap
+  drawLabel(ctx, placed = []) {
+    if (!this.name || !this.labelAt) return;
+    const { x, y, r } = this.labelAt;
+    const size = Math.max(10, Math.round(r * 0.85));
+    ctx.save();
+    ctx.font = `600 ${size}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(this.name).width + size * 0.9;
+    const h = size * 1.5;
+    let cy = y - size * 0.5 - h / 2;
+    for (let moved = true; moved; ) {
+      moved = false;
+      for (const p of placed) {
+        if (Math.abs(p.x - x) < (p.w + w) / 2 + 2 && Math.abs(p.cy - cy) < h + 2) {
+          cy = p.cy - h - 2;
+          moved = true;
+        }
+      }
+    }
+    placed.push({ x, cy, w });
+    ctx.fillStyle = 'rgba(16,10,32,0.72)';
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, cy - h / 2, w, h, h / 2);
+    ctx.fill();
+    ctx.fillStyle = this.look.body;
+    ctx.fillText(this.name, x, cy + 0.5);
+    ctx.restore();
+  }
+
   drawMarkers(ctx, route, now) {
     for (const f of this.flashes) {
       const age = (now - f.at) / 900;
@@ -259,7 +304,7 @@ export class Task {
     this.lastY = groundY;
 
     drawContactShadow(ctx, px, groundY, BODY_R / 8);
-    drawChick(ctx, px, groundY, {
+    this.drawChickAt(ctx, px, groundY, {
       bodyR: BODY_R,
       hue: this.chickHue,
       walkPhase,
@@ -357,7 +402,7 @@ export class Task {
     const reachDist = Math.hypot(reachDX, reachDY) || 1;
     const reachFrac = Math.max(0, reachDist - orbR * 0.75) / reachDist;
 
-    drawChick(ctx, px, groundY, {
+    this.drawChickAt(ctx, px, groundY, {
       bodyR,
       hue: this.chickHue,
       walkPhase,
@@ -400,7 +445,7 @@ export class Task {
     // the one-shot 100% burst, right as it lands
     if (elapsed < BURST_MS) drawOrbBurst(ctx, orbX, orbY, this.orbHue, elapsed / BURST_MS);
 
-    drawChick(ctx, px, groundY, {
+    this.drawChickAt(ctx, px, groundY, {
       bodyR: BODY_R,
       hue: this.chickHue,
       walkPhase: t * 0.6 + this.phase,
