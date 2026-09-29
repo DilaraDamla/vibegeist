@@ -17,16 +17,32 @@ function displayName(task) {
 // Mario Kart-style standings: rank, color dot, name, a progress bar and what
 // the chick is doing right now - both players' progress at a glance
 // meId: the chick this viewer said is theirs (click a row to pick it)
-export function renderRacePanel(el, tasks, now, scores, room, meId, streaks = {}) {
-  const rows = [...tasks.values()].sort((a, b) => b.percent - a.percent);
-  let html = `<div class="race-head">🏁 yarış${room ? ` <span class="room">oda: ${esc(room)}</span>` : ''}</div>`;
-  if (!rows.length) {
+// maxRows: a crowded mountain shows only the front of the race (plus your
+// own row wherever you are) and a "+N" line. collapsed: just the head line,
+// for small screens where the mountain matters more than the standings.
+export function renderRacePanel(el, tasks, now, scores, room, meId, streaks = {}, maxRows = 6, collapsed = false) {
+  const all = [...tasks.values()].sort((a, b) => b.percent - a.percent);
+  const leader = all[0];
+  const summary = collapsed && leader ? ` <span class="room">${all.length} civciv · önde ${esc(displayName(leader))} %${leader.percent}</span>` : '';
+  let html = `<div class="race-head" title="${collapsed ? 'aç' : 'küçült'}">🏁 yarış${room ? ` <span class="room">oda: ${esc(room)}</span>` : ''}${summary}<span class="fold">${collapsed ? '▾' : '▴'}</span></div>`;
+  if (collapsed) {
+    if (el.dataset.html !== html) {
+      el.dataset.html = html;
+      el.innerHTML = html;
+    }
+    return;
+  }
+  if (!all.length) {
     html += '<div class="race-empty">şu an kimse tırmanmıyor - Claude\'a bir şey yaz, civcivin yola çıksın</div>';
   }
-  rows.forEach((task, i) => {
+  let rows = all.slice(0, maxRows);
+  const mine = all.find((task) => task.id === meId);
+  if (mine && !rows.includes(mine)) rows = [...rows.slice(0, maxRows - 1), mine];
+  rows.forEach((task) => {
+    const i = all.indexOf(task);
     const done = task.state === 'placing' || task.state === 'ascending';
     const mine = task.id === meId;
-    const badges = `${task.champion ? '👑' : ''}${task.streak > 1 ? `🔥${task.streak}` : ''}`;
+    const badges = `${task.champion ? '<span title="bu haftanın zirve şampiyonu">👑</span>' : ''}${task.streak > 1 ? `<span title="${task.streak} gündür her gün zirvede">🔥${task.streak}</span>` : ''}`;
     html += `<div class="race-row${done ? ' done' : ''}${mine ? ' mine' : ''}" data-id="${esc(task.id)}" title="${mine ? 'bu sensin' : 'bu benim civcivim de'}">
       <span class="rank">${i + 1}.</span>
       <span class="dot" style="background:${task.look.body}"></span>
@@ -36,6 +52,7 @@ export function renderRacePanel(el, tasks, now, scores, room, meId, streaks = {}
       <span class="what">${task.status(now)}</span>
     </div>`;
   });
+  if (all.length > rows.length) html += `<div class="race-more">+${all.length - rows.length} civciv daha</div>`;
   const board = Object.entries(scores || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
   if (board.length) {
     const medals = ['🥇', '🥈', '🥉'];
@@ -174,16 +191,26 @@ export class HighFives {
 
 // the item boxes' fixed spots on the climb (Mario Kart "?" blocks) - drawn on
 // whichever route is active, bobbing a little above the path
-export function drawItemBoxes(ctx, route, t, scale = 1) {
+// state: { openedAt: ms per box, near: 0..1 per box } - a box bobs faster
+// and glows brighter as a chick closes in on it (anticipation), and jumps
+// with a white flash the moment it's opened
+export function boxPosition(route, i, scale = 1) {
+  const ground = route.pointAt(stepsToProgress(BOX_STEPS[i]), 0);
+  return { x: ground.x, y: ground.y - 30 * scale };
+}
+
+export function drawItemBoxes(ctx, route, t, scale = 1, state = null, now = Date.now()) {
   const size = 13 * scale;
   for (let i = 0; i < BOX_STEPS.length; i++) {
-    const p = stepsToProgress(BOX_STEPS[i]);
-    const ground = route.pointAt(p, 0);
-    const x = ground.x;
-    const y = ground.y - 30 * scale + Math.sin(t * 2.2 + i) * 3 * scale;
+    const near = state?.near[i] || 0;
+    const openAge = state?.openedAt[i] ? now - state.openedAt[i] : Infinity;
+    const jump = openAge < 500 ? Math.sin((openAge / 500) * Math.PI) * 10 * scale : 0;
+    const home = boxPosition(route, i, scale);
+    const x = home.x;
+    const y = home.y + Math.sin(t * (2.2 + near * 5) + i) * (3 + near * 2) * scale - jump;
     ctx.save();
-    ctx.shadowColor = 'rgba(255,200,60,0.7)';
-    ctx.shadowBlur = 10 * scale;
+    ctx.shadowColor = `rgba(255,200,60,${0.7 + near * 0.3})`;
+    ctx.shadowBlur = (10 + near * 14) * scale;
     ctx.fillStyle = '#f2b52c';
     ctx.strokeStyle = '#8a5a10';
     ctx.lineWidth = Math.max(1, 1.5 * scale);
@@ -197,6 +224,13 @@ export function drawItemBoxes(ctx, route, t, scale = 1) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('?', x, y + 0.5);
+    if (openAge < 300) {
+      ctx.globalAlpha = 1 - openAge / 300;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.roundRect(x - size / 2, y - size / 2, size, size, 2.5 * scale);
+      ctx.fill();
+    }
     ctx.restore();
   }
 }
@@ -212,6 +246,7 @@ export class MeBar {
       const btn = ev.target.closest('[data-emote]');
       if (btn) onEmote(btn.dataset.emote);
     });
+    this.onEmote = onEmote;
     el.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const input = el.querySelector('input');
@@ -219,12 +254,21 @@ export class MeBar {
     });
   }
 
+  // the button that fired bounces, whether it was clicked or pressed 1-4
+  pressed(kind) {
+    const btn = this.el.querySelector(`[data-emote="${kind}"]`);
+    if (!btn) return;
+    btn.classList.remove('pop');
+    void btn.offsetWidth; // restart the animation on a quick second press
+    btn.classList.add('pop');
+  }
+
   render(me, anyone) {
     const key = me ? `${me.id}|${me.name || ''}` : anyone ? 'pick' : 'none';
     if (key === this.key) return;
     this.key = key;
     if (!me) {
-      this.el.innerHTML = anyone ? '<span class="hint">senin civcivin hangisi? yukarıda kendi satırına tıkla</span>' : '';
+      this.el.innerHTML = anyone ? '<span class="hint pick">senin civcivin hangisi? yukarıda kendi satırına tıkla</span>' : '';
       return;
     }
     const buttons = Object.entries(EMOTE_ICONS)

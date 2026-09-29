@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>vibegeist</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0b0d12; color: #cfd3dc; font-family: ui-monospace, monospace; overflow: hidden; }
@@ -70,6 +70,32 @@
   #me form { display: flex; gap: 4px; }
   #me input { font: 12px ui-monospace, monospace; width: 110px; cursor: text; }
   #me form button { font: 12px ui-monospace, monospace; }
+  #me button:active { transform: scale(0.9); }
+  #me button.pop { animation: emote-pop .35s ease-out; }
+  @keyframes emote-pop {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,213,74,0.6); }
+    40% { transform: scale(1.22); box-shadow: 0 0 0 6px rgba(255,213,74,0.25); }
+    100% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255,213,74,0); }
+  }
+  #race .race-head { cursor: pointer; display: flex; align-items: baseline; gap: 0; }
+  #race .fold { margin-left: auto; opacity: .5; padding-left: 8px; }
+  #race.folded .race-head { margin-bottom: 0; }
+  #race .race-more { opacity: .55; padding: 1px 0 0 21px; }
+  /* phones: the mountain comes first - one slim bar up top, big thumbs-sized
+     emote buttons at the bottom clear of the home indicator */
+  @media (max-width: 600px) {
+    #hud, #pipBtn { display: none; }
+    #race { top: 8px; left: 8px; right: 56px; width: auto; font-size: 11px; }
+    #race .race-row { grid-template-columns: 14px 9px minmax(0,1fr) 54px 30px 80px; gap: 4px; padding: 3px 0; }
+    #race .room { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    #soundBtn { top: 8px; right: 8px; padding: 6px 9px; }
+    #toast { top: auto; bottom: calc(76px + env(safe-area-inset-bottom)); font-size: 12px; transform: translate(-50%, 30px); white-space: normal; text-align: center; }
+    #me { bottom: calc(10px + env(safe-area-inset-bottom)); flex-wrap: wrap; justify-content: center; }
+    #me .hint { white-space: normal; text-align: center; font-size: 11px; }
+    #me button { min-width: 44px; min-height: 44px; font-size: 20px; }
+    #me input { font-size: 16px; width: 130px; min-height: 40px; box-sizing: border-box; }
+    #me form button { font-size: 14px; min-width: 0; }
+  }
   /* the small widget window: the standings replace the headcount, no scoreboard */
   @media (max-height: 420px) {
     #hud, #pipBtn { display: none; }
@@ -79,7 +105,10 @@
     #toast { top: auto; bottom: 46px; font-size: 11px; transform: translate(-50%, 30px); }
     #me { bottom: 8px; }
     #me .hint { font-size: 10px; }
-    #me button { font-size: 13px; padding: 2px 6px; }
+    /* the widget is too small for the "which one is you" nudge - pick in the big view */
+    #me .hint.pick { display: none; }
+    #me button { font-size: 13px; padding: 2px 6px; min-width: 0; min-height: 0; }
+    #me input { font-size: 12px; min-height: 0; width: 100px; }
   }
 </style>
 </head>

@@ -113,6 +113,9 @@ export class Task {
   // a viewer connecting mid-race: jump straight to the server's position
   syncSteps(steps = 0) {
     this.climbTarget = this.climbed = stepsToProgress(steps);
+    // landmarks already behind it were passed before this viewer arrived -
+    // don't replay every one of their moments at once on page load
+    for (const wp of LANDMARKS) if (wp.p <= this.climbed) this.passedMarkers.add(wp.name);
   }
 
   // one short line for the race panel, so nobody has to guess what the
@@ -177,6 +180,7 @@ export class Task {
       if (this.climbed >= wp.p && !this.passedMarkers.has(wp.name)) {
         this.passedMarkers.add(wp.name);
         this.flashes.push({ wp, at: now });
+        Task.onLandmark?.(wp.name, this, now);
       }
     }
   }
@@ -371,8 +375,10 @@ export class Task {
     } else if (emote === 'wave' || emote === 'heart') {
       opts = { ...opts, armsRaised: true, pushing: false, happy: emote === 'heart' };
     }
-    const fx = this.effect && now - this.effect.at < EFFECT_MS ? this.effect : null;
+    const fx = this.effect && now >= this.effect.at && now - this.effect.at < EFFECT_MS ? this.effect : null;
     const fxFrac = fx ? (now - fx.at) / EFFECT_MS : 0;
+    // the mushroom lands: a quick swell before the dash
+    if (fx?.kind === 'boost' && fxFrac < 0.25) opts = { ...opts, bodyR: r * (1 + Math.sin((fxFrac / 0.25) * Math.PI) * 0.18) };
 
     ctx.save();
     if (fx?.kind === 'slip') {
@@ -411,19 +417,36 @@ export class Task {
   // would stack their names into an unreadable smear, so this one steps up
   // above any label it would overlap
   drawLabel(ctx, placed = []) {
-    if (!this.labelAt) return;
-    const { x, y, r } = this.labelAt;
+    // names ease in when a chick appears and drift up and out when it turns
+    // into a spirit, instead of popping on and off
+    const now = Date.now();
+    const dt = Math.min(0.1, (now - (this.labelTs || now)) / 1000);
+    this.labelTs = now;
+    const present = !!this.labelAt && this.state !== 'ascending';
+    this.labelFade = Math.max(0, Math.min(1, (this.labelFade || 0) + (present ? dt * 3 : -dt * 2)));
+    if (this.labelAt) this.lastLabel = this.labelAt;
+    const at = this.lastLabel;
+    if (!at || this.labelFade <= 0.01) return;
+    const { x, r } = at;
+    const y = at.y - (present ? 0 : (1 - this.labelFade) * 18);
     if (!this.name) {
       this.drawEmoteBubble(ctx, x, y - r * 0.6, r);
       return;
     }
-    const text = `${this.champion ? '👑 ' : ''}${this.name}${this.streak > 1 ? ` 🔥${this.streak}` : ''}`;
+    // small screens get shorter names - the full one is in the panel
+    const narrow = ctx.canvas.width < 600;
+    const name = narrow && this.name.length > 8 ? `${this.name.slice(0, 7)}…` : this.name;
     const size = Math.max(10, Math.round(r * 0.85));
     ctx.save();
+    ctx.globalAlpha = this.labelFade;
     ctx.font = `600 ${size}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const w = ctx.measureText(text).width + size * 0.9;
+    const nameW = ctx.measureText(name).width;
+    // a streak is a small ember and a number, not an emoji shouting over the name
+    const streakText = this.streak > 1 ? String(this.streak) : '';
+    const streakW = streakText ? size * 0.7 + ctx.measureText(streakText).width + size * 0.35 : 0;
+    const w = nameW + streakW + size * 0.9;
     const h = size * 1.5;
     let cy = y - size * 0.5 - h / 2;
     for (let moved = true; moved; ) {
@@ -440,8 +463,31 @@ export class Task {
     ctx.beginPath();
     ctx.roundRect(x - w / 2, cy - h / 2, w, h, h / 2);
     ctx.fill();
+    // this week's champion wears it on the name itself: a thin gold rim
+    // and a tiny crown perched on the pill's corner
+    if (this.champion) {
+      ctx.strokeStyle = 'rgba(255,213,74,0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      drawTinyCrown(ctx, x - w / 2 + h * 0.45, cy - h / 2 - 1, size * 0.7);
+    } else {
+      ctx.strokeStyle = this.look.body;
+      ctx.globalAlpha = this.labelFade * 0.3;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.globalAlpha = this.labelFade;
+    }
+    const left = x - w / 2 + size * 0.45;
     ctx.fillStyle = this.look.body;
-    ctx.fillText(text, x, cy + 0.5);
+    ctx.textAlign = 'left';
+    ctx.fillText(name, left, cy + 0.5);
+    if (streakText) {
+      const ex = left + nameW + size * 0.35 + size * 0.3;
+      drawEmber(ctx, ex, cy + 0.5, size * 0.42, now);
+      ctx.fillStyle = '#ffb36b';
+      ctx.font = `600 ${Math.round(size * 0.85)}px system-ui, sans-serif`;
+      ctx.fillText(streakText, ex + size * 0.38, cy + 1);
+    }
     ctx.restore();
     this.drawEmoteBubble(ctx, x, cy - h / 2, r);
   }
@@ -452,14 +498,45 @@ export class Task {
     const age = Date.now() - this.emote.at;
     if (age > EMOTE_MS) return;
     const frac = age / EMOTE_MS;
-    const pop = Math.min(1, age / 150);
+    // an overshooting pop (ease-out-back) so it lands with a little bounce
+    const k = Math.min(1, age / 260) - 1;
+    const pop = 1 + 2.7 * k * k * k + 1.7 * k * k;
     const size = Math.max(16, r * 1.5) * pop;
+    const by = bottomY - 2 - frac * r;
+    const kind = this.emote.kind;
     ctx.save();
     ctx.globalAlpha = frac < 0.8 ? 1 : (1 - frac) / 0.2;
     ctx.font = `${Math.round(size)}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(EMOTE_ICONS[this.emote.kind] || '', x, bottomY - 2 - frac * r);
+    ctx.fillText(EMOTE_ICONS[kind] || '', x, by);
+    // a few particles in the emote's own spirit
+    const s = Math.max(16, r * 1.5);
+    ctx.font = `${Math.round(s * 0.45)}px system-ui, sans-serif`;
+    for (let i = 0; i < 3; i++) {
+      const pf = Math.min(1, Math.max(0, frac * 1.6 - i * 0.18));
+      if (pf <= 0 || pf >= 1) continue;
+      ctx.globalAlpha = 1 - pf;
+      const side = i % 2 ? 1 : -1;
+      if (kind === 'heart') {
+        ctx.fillStyle = '#ff6f91';
+        ctx.fillText('♥', x + side * (s * 0.5 + i * 3) + Math.sin(pf * 8) * 3, by - s * 0.3 - pf * s * 1.1);
+      } else if (kind === 'dance') {
+        ctx.fillStyle = '#ffe28a';
+        ctx.fillText('♪', x + side * s * 0.6, by - s * 0.2 - pf * s);
+      } else if (kind === 'wave') {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, by - s * 0.5, s * (0.6 + pf * 0.5), -0.5 + side * 0.1, 0.5 + side * 0.1);
+        ctx.stroke();
+      } else if (kind === 'taunt') {
+        ctx.fillStyle = '#d8d2e6';
+        ctx.beginPath();
+        ctx.arc(x + side * s * (0.45 + pf * 0.3), by - s * 0.4 - pf * s * 0.5, 2 + pf * 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 
@@ -500,6 +577,16 @@ export class Task {
     this.lastX = px;
     this.lastY = groundY;
 
+    // first arrival: a soft column of light where the chick steps in
+    const beam = Math.sin(arriveFrac * Math.PI) * 0.32;
+    if (beam > 0.01) {
+      const bg = ctx.createLinearGradient(0, groundY - 130, 0, groundY);
+      bg.addColorStop(0, `hsla(${this.orbHue}, 80%, 80%, 0)`);
+      bg.addColorStop(1, `hsla(${this.orbHue}, 80%, 80%, ${beam})`);
+      ctx.fillStyle = bg;
+      ctx.fillRect(px - 9, groundY - 130, 18, 130);
+    }
+
     drawContactShadow(ctx, px, groundY, BODY_R / 8);
     this.drawChickAt(ctx, px, groundY, {
       bodyR: BODY_R,
@@ -518,6 +605,15 @@ export class Task {
       const r = 9 * growFrac;
       const ox = px + 18;
       const oy = groundY - 18;
+      // the first touch of the orb: motes of light gather into its hands
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + t * 2;
+        const d = 26 * (1 - growFrac);
+        ctx.globalAlpha = 1 - growFrac;
+        ctx.fillStyle = `hsl(${this.orbHue}, 80%, 85%)`;
+        ctx.fillRect(ox + Math.cos(a) * d - 1, oy + Math.sin(a) * d - 1, 2, 2);
+      }
+      ctx.globalAlpha = 1;
       drawOrb(ctx, ox, oy, r, this.orbHue, t, this.phase, growFrac, growFrac);
     }
   }
@@ -664,4 +760,35 @@ export class Task {
     const sway = Math.sin(t * 1.6 + this.phase) * 8;
     drawSpirit(ctx, this.lastX + sway, this.lastY - rise, Math.max(0, alpha), this.chickHue, t, this.phase);
   }
+}
+
+// the weekly champion's mark - a little gold crown, drawn to match the
+// in-race leader crown rather than an emoji
+function drawTinyCrown(ctx, x, y, s) {
+  ctx.fillStyle = '#ffd54a';
+  ctx.beginPath();
+  ctx.moveTo(x - s * 0.6, y + s * 0.2);
+  ctx.lineTo(x - s * 0.6, y - s * 0.35);
+  ctx.lineTo(x - s * 0.25, y - s * 0.05);
+  ctx.lineTo(x, y - s * 0.5);
+  ctx.lineTo(x + s * 0.25, y - s * 0.05);
+  ctx.lineTo(x + s * 0.6, y - s * 0.35);
+  ctx.lineTo(x + s * 0.6, y + s * 0.2);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// the streak's ember: a small flickering flame shape
+function drawEmber(ctx, x, y, s, now) {
+  const f = 1 + Math.sin(now / 120) * 0.08;
+  ctx.fillStyle = '#ff8a3d';
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * f);
+  ctx.quadraticCurveTo(x + s * 0.7, y - s * 0.1, x, y + s * 0.55);
+  ctx.quadraticCurveTo(x - s * 0.7, y - s * 0.1, x, y - s * f);
+  ctx.fill();
+  ctx.fillStyle = '#ffd36b';
+  ctx.beginPath();
+  ctx.arc(x, y + s * 0.15, s * 0.28, 0, Math.PI * 2);
+  ctx.fill();
 }

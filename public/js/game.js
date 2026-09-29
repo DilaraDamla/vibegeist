@@ -27,10 +27,10 @@ export function pickupItem(sessions, id, rand = Math.random) {
   if (victimId && rand() < BANANA_CHANCE) {
     const victim = sessions.get(victimId);
     victim.steps = Math.max(0, (victim.steps ?? 0) - BANANA_STEPS);
-    return { type: 'item', id, item: 'banana', steps: s.steps, target: victimId, targetSteps: victim.steps };
+    return { type: 'item', id, box: opened, item: 'banana', steps: s.steps, target: victimId, targetSteps: victim.steps };
   }
   s.steps += MUSHROOM_STEPS;
-  return { type: 'item', id, item: 'mushroom', steps: s.steps };
+  return { type: 'item', id, box: opened, item: 'mushroom', steps: s.steps };
 }
 
 // --- streaks (Duolingo-style) ---------------------------------------------

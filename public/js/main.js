@@ -9,7 +9,10 @@ import { SoundEngine } from './sound.js';
 import { drawGravestone } from './gravestone.js';
 import { drawIdleChicks } from './idle.js';
 import { Ambience } from './ambient.js';
-import { renderRacePanel, Announcer, drawSummitFlag, HighFives, drawItemBoxes, MeBar } from './race.js';
+import { renderRacePanel, Announcer, drawSummitFlag, HighFives, drawItemBoxes, boxPosition, MeBar } from './race.js';
+import { Moments } from './moments.js';
+import { BOX_STEPS } from './game.js';
+import { stepsToProgress } from './task.js';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -31,7 +34,24 @@ let meId = null;
 try {
   meId = localStorage.getItem(ME_KEY);
 } catch {}
+// the standings can fold down to one line - on a phone the mountain
+// matters more than the table, so it starts folded there
+const FOLD_KEY = 'vibegeist.raceFolded';
+// (not in the widget, where the two-line standings are the whole point)
+let raceFolded = matchMedia('(max-width: 600px)').matches && !new URLSearchParams(location.search).has('widget');
+try {
+  const saved = localStorage.getItem(FOLD_KEY);
+  if (saved !== null) raceFolded = saved === '1';
+} catch {}
 racePanel.addEventListener('click', (ev) => {
+  if (ev.target.closest('.race-head')) {
+    raceFolded = !raceFolded;
+    try {
+      localStorage.setItem(FOLD_KEY, raceFolded ? '1' : '0');
+    } catch {}
+    updateHud();
+    return;
+  }
   const row = ev.target.closest('.race-row');
   if (!row) return;
   meId = row.dataset.id;
@@ -40,8 +60,14 @@ racePanel.addEventListener('click', (ev) => {
   } catch {}
   updateHud();
 });
+// the server drops emotes sent faster than this anyway - matching it here
+// means every press that bounces a button also shows up on the mountain
+let lastEmoteAt = 0;
 function sendEmote(kind) {
-  if (meId && tasks.has(meId)) net.send({ type: 'emote', id: meId, emote: kind });
+  if (!meId || !tasks.has(meId) || Date.now() - lastEmoteAt < 850) return;
+  lastEmoteAt = Date.now();
+  meBar.pressed(kind);
+  net.send({ type: 'emote', id: meId, emote: kind });
 }
 const meBar = new MeBar(
   document.getElementById('me'),
@@ -78,6 +104,13 @@ const route = new Route(canvas);
 const waypoints = new Waypoints(canvas, route);
 const ambience = new Ambience(canvas);
 ambience.setAnchors(waypoints.anchors);
+const moments = new Moments(canvas);
+// landmark moments belong to the full diorama - the widget is kept quiet
+Task.onLandmark = (name, task, now) => {
+  if (!pipActive) moments.landmark(name, waypoints.anchors, now);
+};
+// the item boxes' own animation state: when each last opened
+const boxOpenedAt = BOX_STEPS.map(() => 0);
 const sideRoute = new SideRoute(canvas);
 const widgetScene = new WidgetScene(canvas, sideRoute);
 // a shared link can carry ?widget=1 so it opens straight into the compact
@@ -158,7 +191,9 @@ function updateHud() {
     task.streak = (task.name && streaks[task.name]) || 0;
     task.champion = !!task.name && champion?.name === task.name;
   }
-  renderRacePanel(racePanel, tasks, Date.now(), scores, room, meId, streaks);
+  const small = pipActive || innerWidth < 600;
+  renderRacePanel(racePanel, tasks, Date.now(), scores, room, meId, streaks, small ? 3 : 6, raceFolded);
+  racePanel.classList.toggle('folded', raceFolded);
   meBar.render(tasks.get(meId), tasks.size > 0);
 }
 
@@ -238,13 +273,21 @@ const net = new NetworkClient((msg) => {
   } else if (msg.type === 'item') {
     const task = tasks.get(msg.id);
     task?.activity(now, msg.steps);
+    // the box it opened jumps and flashes, and the prize rises out of it
+    if (msg.box !== undefined && boxOpenedAt[msg.box] !== undefined) {
+      boxOpenedAt[msg.box] = now;
+      if (!pipActive) moments.boxOpen(boxPosition(route, msg.box), msg.item, now);
+    }
     if (msg.item === 'banana') {
-      // the chick just behind slides back down to the server's new position
+      // the banana is thrown first; the chick just behind only slips (and
+      // slides back to the server's new position) when it lands
       const victim = tasks.get(msg.target);
       if (victim) {
-        victim.activity(now, msg.targetSteps);
-        victim.effect = { kind: 'slip', at: now };
-        lookNear(victim, 170, 1400, now);
+        const THROW_MS = 450;
+        if (task && !pipActive) moments.banana(task, victim, now);
+        victim.effect = { kind: 'slip', at: now + THROW_MS };
+        setTimeout(() => victim.activity(Date.now(), msg.targetSteps), THROW_MS);
+        lookNear(victim, 170, 1400 + THROW_MS, now);
       }
       soundEngine.playOvertake(task?.orbHue ?? 0);
       announcer.say(`🍌 ${who(task?.name)} muz bıraktı, ${who(victim?.name)} kaydı!`);
@@ -307,6 +350,10 @@ function draw() {
     ambience.drawBirds(ctx, t, dt);
     mountain.draw(ctx);
     waypoints.draw(ctx, t, dt, Math.max(breath, storm));
+    // as the leader nears the top, the peak starts to answer
+    let top = 0;
+    for (const task of tasks.values()) if (task.state === 'climbing') top = Math.max(top, task.climbed);
+    if (top > 0.8) mountain.drawPeakGlow(ctx, ((top - 0.8) / 0.12) * (0.55 + 0.1 * Math.sin(t * 2)));
     drawSummitFlag(ctx, route, flag, t);
   }
 
@@ -315,7 +362,17 @@ function draw() {
 
   const activeRoute = pipActive ? new CameraRoute(sideRoute, camera.lo, camera.hi, widgetScene.shiftFor(camera.lo, camera.hi)) : route;
 
-  drawItemBoxes(ctx, activeRoute, t, pipActive ? WIDGET_SCALE : 1);
+  // a box perks up as a climber closes in on it
+  const near = BOX_STEPS.map((steps) => {
+    const p = stepsToProgress(steps);
+    let n = 0;
+    for (const task of tasks.values()) {
+      const d = p - task.climbed;
+      if (task.state === 'climbing' && d > 0 && d < 0.08) n = Math.max(n, 1 - d / 0.08);
+    }
+    return n;
+  });
+  drawItemBoxes(ctx, activeRoute, t, pipActive ? WIDGET_SCALE : 1, { openedAt: boxOpenedAt, near }, now);
 
   // resolved from route progress at draw time (not stored pixels), so these
   // land correctly on whichever view is active and survive a canvas resize
@@ -349,7 +406,10 @@ function draw() {
   }
   while (summitShowers.length && summitShowers[0].at <= now) {
     const s = summitShowers.shift();
-    if (!pipActive) ambience.summitSparkle(peakPt.x, peakPt.y - 10, s.hue, now);
+    if (!pipActive) {
+      ambience.summitSparkle(peakPt.x, peakPt.y - 10, s.hue, now);
+      moments.summitFlash(now);
+    }
   }
 
   // whoever is furthest along gets a crown - only meaningful with an actual
@@ -397,6 +457,7 @@ function draw() {
     else task.draw(ctx, activeRoute, t, now, isLeader, storm);
     if (task.finished) removedAny = true;
   }
+  moments.draw(ctx, now);
   const placedLabels = [];
   for (const task of ordered) task.drawLabel(ctx, placedLabels);
   highFives.draw(ctx, now);
@@ -421,6 +482,9 @@ function draw() {
 draw();
 
 const pipBtn = document.getElementById('pipBtn');
+// phones and non-Chromium browsers can't pop the widget out at all - better
+// no button than one that only ever says "not supported"
+if (!('documentPictureInPicture' in window)) pipBtn.hidden = true;
 pipBtn.addEventListener('click', async () => {
   if (!('documentPictureInPicture' in window)) {
     alert('Bu özellik Chrome veya Edge gerektiriyor.');
