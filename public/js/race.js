@@ -1,4 +1,6 @@
 import { pickLook } from './look.js';
+import { EMOTE_ICONS, stepsToProgress } from './task.js';
+import { BOX_STEPS } from './game.js';
 
 // everything that makes the race legible without squinting at tiny chicks:
 // a live standings panel, one-line announcements, the summit flag, and the
@@ -14,7 +16,8 @@ function displayName(task) {
 
 // Mario Kart-style standings: rank, color dot, name, a progress bar and what
 // the chick is doing right now - both players' progress at a glance
-export function renderRacePanel(el, tasks, now, scores, room) {
+// meId: the chick this viewer said is theirs (click a row to pick it)
+export function renderRacePanel(el, tasks, now, scores, room, meId, streaks = {}) {
   const rows = [...tasks.values()].sort((a, b) => b.percent - a.percent);
   let html = `<div class="race-head">🏁 yarış${room ? ` <span class="room">oda: ${esc(room)}</span>` : ''}</div>`;
   if (!rows.length) {
@@ -22,10 +25,12 @@ export function renderRacePanel(el, tasks, now, scores, room) {
   }
   rows.forEach((task, i) => {
     const done = task.state === 'placing' || task.state === 'ascending';
-    html += `<div class="race-row${done ? ' done' : ''}">
+    const mine = task.id === meId;
+    const badges = `${task.champion ? '👑' : ''}${task.streak > 1 ? `🔥${task.streak}` : ''}`;
+    html += `<div class="race-row${done ? ' done' : ''}${mine ? ' mine' : ''}" data-id="${esc(task.id)}" title="${mine ? 'bu sensin' : 'bu benim civcivim de'}">
       <span class="rank">${i + 1}.</span>
       <span class="dot" style="background:${task.look.body}"></span>
-      <span class="who">${esc(displayName(task))}</span>
+      <span class="who">${esc(displayName(task))}${mine ? ' <em>(sen)</em>' : ''}${badges ? ` <span class="badges">${badges}</span>` : ''}</span>
       <span class="bar"><i style="width:${task.percent}%;background:${task.look.body}"></i></span>
       <span class="pct">${task.percent}%</span>
       <span class="what">${task.status(now)}</span>
@@ -35,7 +40,7 @@ export function renderRacePanel(el, tasks, now, scores, room) {
   if (board.length) {
     const medals = ['🥇', '🥈', '🥉'];
     html += `<div class="race-scores">bugün zirve: ${board
-      .map(([name, n], i) => `${medals[i] || ''}${esc(name)} <b>${n}</b>`)
+      .map(([name, n], i) => `${medals[i] || ''}${esc(name)} <b>${n}</b>${streaks[name] > 1 ? ` 🔥${streaks[name]}` : ''}`)
       .join(' · ')}</div>`;
   }
   // only touch the DOM when something visible changed - this runs every frame
@@ -164,5 +169,70 @@ export class HighFives {
       ctx.fillText('✋ çak!', x, y);
       ctx.restore();
     }
+  }
+}
+
+// the item boxes' fixed spots on the climb (Mario Kart "?" blocks) - drawn on
+// whichever route is active, bobbing a little above the path
+export function drawItemBoxes(ctx, route, t, scale = 1) {
+  const size = 13 * scale;
+  for (let i = 0; i < BOX_STEPS.length; i++) {
+    const p = stepsToProgress(BOX_STEPS[i]);
+    const ground = route.pointAt(p, 0);
+    const x = ground.x;
+    const y = ground.y - 30 * scale + Math.sin(t * 2.2 + i) * 3 * scale;
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,200,60,0.7)';
+    ctx.shadowBlur = 10 * scale;
+    ctx.fillStyle = '#f2b52c';
+    ctx.strokeStyle = '#8a5a10';
+    ctx.lineWidth = Math.max(1, 1.5 * scale);
+    ctx.beginPath();
+    ctx.roundRect(x - size / 2, y - size / 2, size, size, 2.5 * scale);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = `800 ${Math.round(size * 0.8)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', x, y + 0.5);
+    ctx.restore();
+  }
+}
+
+// the viewer's own controls, under the standings: emote buttons for their
+// chick, and a name box if its hook didn't send a name. Rebuilt only when
+// its shape changes, so typing in the name box never loses focus.
+export class MeBar {
+  constructor(el, onEmote, onName) {
+    this.el = el;
+    this.key = '';
+    el.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-emote]');
+      if (btn) onEmote(btn.dataset.emote);
+    });
+    el.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const input = el.querySelector('input');
+      if (input.value.trim()) onName(input.value.trim());
+    });
+  }
+
+  render(me, anyone) {
+    const key = me ? `${me.id}|${me.name || ''}` : anyone ? 'pick' : 'none';
+    if (key === this.key) return;
+    this.key = key;
+    if (!me) {
+      this.el.innerHTML = anyone ? '<span class="hint">senin civcivin hangisi? yukarıda kendi satırına tıkla</span>' : '';
+      return;
+    }
+    const buttons = Object.entries(EMOTE_ICONS)
+      .map(([kind, icon], i) => `<button type="button" data-emote="${kind}" title="${i + 1} tuşu">${icon}</button>`)
+      .join('');
+    const nameBox = me.name
+      ? ''
+      : '<form><input maxlength="12" placeholder="ismini yaz" aria-label="civcivinin ismi" /><button type="submit">kaydet</button></form>';
+    this.el.innerHTML = `<span class="hint">sen:</span>${buttons}${nameBox}`;
   }
 }

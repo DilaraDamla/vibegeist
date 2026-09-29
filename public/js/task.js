@@ -17,10 +17,13 @@ const LANDMARKS = WAYPOINTS.filter((wp) => wp.p > 0 && wp.p < 1);
 // by the summit dash when the turn actually finishes
 const STEP = 0.07;
 const STEP_CAP = 0.92;
-function stepsToProgress(steps) {
+export function stepsToProgress(steps) {
   return Math.min(steps * STEP, STEP_CAP);
 }
-const WAIT_IDLE_MS = 20000; // no activity ping for this long reads as "waiting"
+const WAIT_IDLE_MS = 20000;
+const EMOTE_MS = 2200;
+const EFFECT_MS = 1400;
+export const EMOTE_ICONS = { wave: '👋', dance: '💃', heart: '❤️', taunt: '😤' }; // no activity ping for this long reads as "waiting"
 const BURST_MS = 500;
 // how big chicks/orbs/gravestones draw in the compact widget, relative to the
 // main view - one shared knob so the widget stays consistent when tuned
@@ -67,6 +70,10 @@ export class Task {
     this.passedMarkers = new Set();
     this.flashes = [];
     this.overtakeAt = 0; // set by main.js when this task passes another - drives the widget's bounce
+    this.effect = null; // { kind: 'boost' | 'slip', at } from an item box
+    this.emote = null; // { kind, at } sent by the chick's own player from the page
+    this.champion = false; // most summits this week - a 👑 by the name
+    this.streak = 0; // days in a row with a summit
   }
 
   // steps: the server's count of activity pings this turn - when present it
@@ -254,9 +261,50 @@ export class Task {
   // lights up the actual landmark just passed (its real position on the
   // mountain, not the task's own lane) - a soft glow plus an expanding
   // ring, like the place itself is answering "yes, you were here"
+  // every chick pose goes through here, so emotes and item effects apply
+  // the same way to every state and to both the main view and the widget
   drawChickAt(ctx, px, groundY, opts) {
+    const now = Date.now();
+    const r = opts.bodyR;
+    const emote = this.emote && now - this.emote.at < EMOTE_MS ? this.emote.kind : null;
+    if (emote === 'dance') {
+      groundY -= Math.abs(Math.sin(now / 110)) * r * 0.6;
+      opts = { ...opts, facingLeft: Math.floor(now / 280) % 2 === 0, happy: true };
+    } else if (emote === 'wave' || emote === 'heart') {
+      opts = { ...opts, armsRaised: true, pushing: false, happy: emote === 'heart' };
+    }
+    const fx = this.effect && now - this.effect.at < EFFECT_MS ? this.effect : null;
+    const fxFrac = fx ? (now - fx.at) / EFFECT_MS : 0;
+
+    ctx.save();
+    if (fx?.kind === 'slip') {
+      // two full spins, easing out, around the body's middle
+      const cy = groundY - r * 1.6;
+      ctx.translate(px, cy);
+      ctx.rotate((1 - (1 - fxFrac) ** 2) * Math.PI * 4);
+      ctx.translate(-px, -cy);
+    }
     const { headY } = drawChick(ctx, px, groundY, opts);
-    this.labelAt = { x: px, y: headY, r: opts.bodyR };
+    ctx.restore();
+
+    if (fx?.kind === 'boost') {
+      // speed lines streaming off the back
+      const back = opts.facingLeft ? 1 : -1;
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,240,180,${0.8 * (1 - fxFrac)})`;
+      ctx.lineWidth = Math.max(1.5, r * 0.14);
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 3; i++) {
+        const y = groundY - r * (0.9 + i * 0.7);
+        const x0 = px + back * r * (1.2 + ((now / 60 + i * 7) % 6) * 0.15);
+        ctx.beginPath();
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x0 + back * r * 1.4, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    this.labelAt = { x: px, y: headY, r };
   }
 
   // the player's name in a small pill over the chick - drawn by main.js after
@@ -265,14 +313,19 @@ export class Task {
   // would stack their names into an unreadable smear, so this one steps up
   // above any label it would overlap
   drawLabel(ctx, placed = []) {
-    if (!this.name || !this.labelAt) return;
+    if (!this.labelAt) return;
     const { x, y, r } = this.labelAt;
+    if (!this.name) {
+      this.drawEmoteBubble(ctx, x, y - r * 0.6, r);
+      return;
+    }
+    const text = `${this.champion ? '👑 ' : ''}${this.name}${this.streak > 1 ? ` 🔥${this.streak}` : ''}`;
     const size = Math.max(10, Math.round(r * 0.85));
     ctx.save();
     ctx.font = `600 ${size}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const w = ctx.measureText(this.name).width + size * 0.9;
+    const w = ctx.measureText(text).width + size * 0.9;
     const h = size * 1.5;
     let cy = y - size * 0.5 - h / 2;
     for (let moved = true; moved; ) {
@@ -290,7 +343,25 @@ export class Task {
     ctx.roundRect(x - w / 2, cy - h / 2, w, h, h / 2);
     ctx.fill();
     ctx.fillStyle = this.look.body;
-    ctx.fillText(this.name, x, cy + 0.5);
+    ctx.fillText(text, x, cy + 0.5);
+    ctx.restore();
+    this.drawEmoteBubble(ctx, x, cy - h / 2, r);
+  }
+
+  // the emote's emoji popping up over the name, then floating off
+  drawEmoteBubble(ctx, x, bottomY, r) {
+    if (!this.emote) return;
+    const age = Date.now() - this.emote.at;
+    if (age > EMOTE_MS) return;
+    const frac = age / EMOTE_MS;
+    const pop = Math.min(1, age / 150);
+    const size = Math.max(16, r * 1.5) * pop;
+    ctx.save();
+    ctx.globalAlpha = frac < 0.8 ? 1 : (1 - frac) / 0.2;
+    ctx.font = `${Math.round(size)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(EMOTE_ICONS[this.emote.kind] || '', x, bottomY - 2 - frac * r);
     ctx.restore();
   }
 

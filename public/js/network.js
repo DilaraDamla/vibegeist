@@ -15,4 +15,9 @@ export class NetworkClient {
     this.ws.onmessage = (ev) => this.onMessage(JSON.parse(ev.data));
     this.ws.onclose = () => setTimeout(() => this.connect(), 2000);
   }
+
+  // viewer -> server: only emotes and names for unnamed chicks (see world.ts)
+  send(msg) {
+    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  }
 }

@@ -50,13 +50,36 @@
     opacity: 0; pointer-events: none; transition: opacity .3s, transform .3s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #race .race-row { cursor: pointer; border-radius: 4px; }
+  #race .race-row:hover { background: rgba(255,255,255,0.06); }
+  #race .race-row.mine { background: rgba(255,213,74,0.12); }
+  #race .who em { font-style: normal; opacity: .6; }
+  #race .badges { font-size: 10px; }
+  #me {
+    position: fixed; left: 50%; bottom: 14px; z-index: 3; transform: translateX(-50%);
+    display: flex; gap: 6px; align-items: center; max-width: calc(100vw - 32px);
+    font: 12px ui-monospace, monospace;
+  }
+  #me:empty { display: none; }
+  #me .hint { background: rgba(10,8,18,0.6); padding: 5px 9px; border-radius: 6px; white-space: nowrap; }
+  #me button, #me input {
+    background: #1a1e27; color: #cfd3dc; border: 1px solid #333a47; border-radius: 6px;
+    font: 16px system-ui, sans-serif; padding: 4px 8px; cursor: pointer;
+  }
+  #me button:hover { background: #232936; }
+  #me form { display: flex; gap: 4px; }
+  #me input { font: 12px ui-monospace, monospace; width: 110px; cursor: text; }
+  #me form button { font: 12px ui-monospace, monospace; }
   /* the small widget window: the standings replace the headcount, no scoreboard */
   @media (max-height: 420px) {
     #hud, #pipBtn { display: none; }
     #race { top: 8px; left: 8px; width: min(330px, calc(100vw - 64px)); font-size: 10px; padding: 4px 7px; }
     #race .race-row { grid-template-columns: 14px 8px minmax(0,56px) 1fr 28px 92px; gap: 4px; }
     #race .race-scores, #race .race-empty { display: none; }
-    #toast { top: auto; bottom: 10px; font-size: 11px; transform: translate(-50%, 30px); }
+    #toast { top: auto; bottom: 46px; font-size: 11px; transform: translate(-50%, 30px); }
+    #me { bottom: 8px; }
+    #me .hint { font-size: 10px; }
+    #me button { font-size: 13px; padding: 2px 6px; }
   }
 </style>
 </head>
@@ -64,6 +87,7 @@
 <div id="hud">bağlanıyor...</div>
 <div id="race"></div>
 <div id="toast" role="status"></div>
+<div id="me"></div>
 <button id="soundBtn" title="Sesi aç">🔇</button>
 <button id="pipBtn" title="Her zaman üstte kalan küçük bir pencerede aç">📌 widget aç</button>
 <canvas id="c"></canvas>

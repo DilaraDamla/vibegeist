@@ -3,12 +3,12 @@ import { Mountain } from './mountain.js';
 import { Route, SideRoute, CameraRoute } from './route.js';
 import { Waypoints } from './waypoints.js';
 import { WidgetScene } from './widgetScene.js';
-import { Task, WIDGET_SCALE } from './task.js';
+import { Task, WIDGET_SCALE, EMOTE_ICONS } from './task.js';
 import { NetworkClient } from './network.js';
 import { SoundEngine } from './sound.js';
 import { drawGravestone } from './gravestone.js';
 import { drawIdleChicks } from './idle.js';
-import { renderRacePanel, Announcer, drawSummitFlag, HighFives } from './race.js';
+import { renderRacePanel, Announcer, drawSummitFlag, HighFives, drawItemBoxes, MeBar } from './race.js';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -21,6 +21,38 @@ const highFives = new HighFives();
 // ?oda=<name>: a private room - its own mountain, scoreboard and flag, for
 // playing with friends (their hooks set VIBEGEIST_ROOM to the same name)
 const room = (new URLSearchParams(location.search).get('oda') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
+
+// which chick is this viewer's own - picked by clicking its row in the race
+// panel, remembered per room (a Claude window keeps the same chick across
+// turns). Only a convenience, so storage failing just means picking again.
+const ME_KEY = `vibegeist.me.${room}`;
+let meId = null;
+try {
+  meId = localStorage.getItem(ME_KEY);
+} catch {}
+racePanel.addEventListener('click', (ev) => {
+  const row = ev.target.closest('.race-row');
+  if (!row) return;
+  meId = row.dataset.id;
+  try {
+    localStorage.setItem(ME_KEY, meId);
+  } catch {}
+  updateHud();
+});
+function sendEmote(kind) {
+  if (meId && tasks.has(meId)) net.send({ type: 'emote', id: meId, emote: kind });
+}
+const meBar = new MeBar(
+  document.getElementById('me'),
+  sendEmote,
+  (name) => meId && net.send({ type: 'name', id: meId, name })
+);
+// 1-4 on the keyboard fire the emotes, unless the name box has focus
+addEventListener('keydown', (ev) => {
+  if (ev.target.closest?.('input')) return;
+  const kind = Object.keys(EMOTE_ICONS)[Number(ev.key) - 1];
+  if (kind) sendEmote(kind);
+});
 
 const soundEngine = new SoundEngine();
 function updateSoundBtn() {
@@ -111,11 +143,18 @@ let ghostsToday = 0;
 let ghostsAllTime = 0;
 let scores = {}; // today's summits per player name
 let flag = null; // last player to summit: { id, name, at }
+let streaks = {}; // name -> days in a row with a summit
+let champion = null; // { name, count } - most summits this week
 
 function updateHud() {
   const active = [...tasks.values()].filter((t) => t.state !== 'ascending').length;
   hud.innerHTML = `şu an <b>${active}</b> civciv çalışıyor<small>bugün ${ghostsToday} ruh yükseldi · toplam ${ghostsAllTime}</small>`;
-  renderRacePanel(racePanel, tasks, Date.now(), scores, room);
+  for (const task of tasks.values()) {
+    task.streak = (task.name && streaks[task.name]) || 0;
+    task.champion = !!task.name && champion?.name === task.name;
+  }
+  renderRacePanel(racePanel, tasks, Date.now(), scores, room, meId, streaks);
+  meBar.render(tasks.get(meId), tasks.size > 0);
 }
 
 function who(name) {
@@ -127,7 +166,7 @@ function takenColors() {
   return new Set([...tasks.values()].filter((task) => task.state !== 'ascending').map((task) => task.look.colorIdx));
 }
 
-new NetworkClient((msg) => {
+const net = new NetworkClient((msg) => {
   const now = Date.now();
   if (msg.type === 'snapshot') {
     tasks.clear();
@@ -144,6 +183,8 @@ new NetworkClient((msg) => {
     ghostsAllTime = msg.ghostsAllTime || 0;
     scores = msg.scores || {};
     flag = msg.flag || null;
+    streaks = msg.streaks || {};
+    champion = msg.champion || null;
   } else if (msg.type === 'join') {
     const task = new Task(msg.id, msg.x, msg.y * Math.PI * 2, now, takenColors(), msg.name);
     tasks.set(msg.id, task);
@@ -159,9 +200,34 @@ new NetworkClient((msg) => {
     ghostsAllTime = msg.ghostsAllTime ?? ghostsAllTime + 1;
     if (msg.scores) scores = msg.scores;
     if (msg.flag) flag = msg.flag;
+    if (msg.streaks) streaks = msg.streaks;
+    if (msg.champion !== undefined) champion = msg.champion;
     // a turn ending IS the win: the chick reaches the summit exactly when
     // that player's Claude finishes its reply
     announcer.say(`🏆 ${who(msg.name)} zirveye çıktı! (Claude işini bitirdi)`);
+  } else if (msg.type === 'item') {
+    const task = tasks.get(msg.id);
+    task?.activity(now, msg.steps);
+    if (msg.item === 'banana') {
+      // the chick just behind slides back down to the server's new position
+      const victim = tasks.get(msg.target);
+      if (victim) {
+        victim.activity(now, msg.targetSteps);
+        victim.effect = { kind: 'slip', at: now };
+      }
+      soundEngine.playOvertake(task?.orbHue ?? 0);
+      announcer.say(`🍌 ${who(task?.name)} muz bıraktı, ${who(victim?.name)} kaydı!`);
+    } else {
+      if (task) task.effect = { kind: 'boost', at: now };
+      soundEngine.playJoin(task?.orbHue ?? 0);
+      announcer.say(`🍄 ${who(task?.name)} mantar buldu, fırladı!`);
+    }
+  } else if (msg.type === 'emote') {
+    const task = tasks.get(msg.id);
+    if (task) task.emote = { kind: msg.emote, at: now };
+  } else if (msg.type === 'name') {
+    const task = tasks.get(msg.id);
+    if (task) task.name = msg.name;
   } else if (msg.type === 'leave') {
     const task = tasks.get(msg.id);
     // the only way to "fall": no sign of life for 10 minutes mid-climb
@@ -210,6 +276,8 @@ function draw() {
   ctx.textBaseline = 'middle';
 
   const activeRoute = pipActive ? new CameraRoute(sideRoute, camera.lo, camera.hi, widgetScene.shiftFor(camera.lo, camera.hi)) : route;
+
+  drawItemBoxes(ctx, activeRoute, t, pipActive ? WIDGET_SCALE : 1);
 
   // resolved from route progress at draw time (not stored pixels), so these
   // land correctly on whichever view is active and survive a canvas resize
@@ -303,6 +371,7 @@ pipBtn.addEventListener('click', async () => {
   pipWindow.document.body.append(hud);
   pipWindow.document.body.append(racePanel);
   pipWindow.document.body.append(announcer.el);
+  pipWindow.document.body.append(meBar.el);
   pipWindow.document.body.append(soundBtn);
   pipWindow.document.body.append(canvas);
   pipBtn.style.display = 'none';
@@ -321,6 +390,7 @@ pipBtn.addEventListener('click', async () => {
     document.body.append(hud);
     document.body.append(racePanel);
     document.body.append(announcer.el);
+    document.body.append(meBar.el);
     document.body.append(soundBtn);
     document.body.append(canvas);
     pipBtn.style.display = '';

@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pickupItem, bumpStreak, liveStreaks, bumpWeek, weekChampion, EMOTES, EMOTE_COOLDOWN_MS } from '../public/js/game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -19,7 +20,7 @@ function getWorld(room) {
   if (!w) {
     // sessions: sessionHash -> { x, y, joinedAt, lastSeen, name, steps }
     // counters are in-memory only here; the deployed worker persists them
-    w = { sessions: new Map(), ghostsToday: 0, ghostsAllTime: 0, scores: {}, flag: null, clients: new Set(), dayKey: new Date().toDateString() };
+    w = { sessions: new Map(), ghostsToday: 0, ghostsAllTime: 0, scores: {}, flag: null, streaks: {}, week: { key: '', scores: {} }, nicknames: {}, clients: new Set(), dayKey: new Date().toDateString() };
     worlds.set(room, w);
   }
   return w;
@@ -46,7 +47,8 @@ function activeList(w) {
 }
 
 function stateOf(w) {
-  return { active: activeList(w), ghostsToday: w.ghostsToday, ghostsAllTime: w.ghostsAllTime, scores: w.scores, flag: w.flag };
+  const now = Date.now();
+  return { active: activeList(w), ghostsToday: w.ghostsToday, ghostsAllTime: w.ghostsAllTime, scores: w.scores, flag: w.flag, streaks: liveStreaks(w.streaks, now), champion: weekChampion(w.week, now) };
 }
 
 function cleanRoom(raw) {
@@ -101,15 +103,17 @@ const server = createServer((req, res) => {
     req.on('end', () => {
       try {
         const { sessionId, type, name: rawName, room } = JSON.parse(body || '{}');
-        const name = cleanName(rawName) || undefined;
         if (!sessionId || !type) throw new Error('missing fields');
         const w = getWorld(cleanRoom(room));
         resetDayIfNeeded(w);
         const id = hashId(sessionId);
+        const hookName = cleanName(rawName);
+        const name = hookName || w.nicknames[id] || undefined;
+        const hookNamed = !!hookName;
 
         if (type === 'join') {
           const pos = seededPos(id);
-          w.sessions.set(id, { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name, steps: 0 });
+          w.sessions.set(id, { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name, hookNamed, steps: 0, boxes: 0 });
           broadcast(w, { type: 'join', id, ...pos, name, active: w.sessions.size });
         } else if (type === 'activity') {
           let s = w.sessions.get(id);
@@ -117,14 +121,16 @@ const server = createServer((req, res) => {
             // hook installed mid-session: no "join" ever fired, so treat the
             // first activity ping as an implicit join instead of dropping it
             const pos = seededPos(id);
-            s = { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name, steps: 0 };
+            s = { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name, hookNamed, steps: 0, boxes: 0 };
             w.sessions.set(id, s);
             broadcast(w, { type: 'join', id, ...pos, name, active: w.sessions.size });
           } else {
             s.lastSeen = Date.now();
           }
           s.steps += 1;
+          const item = pickupItem(w.sessions, id);
           broadcast(w, { type: 'activity', id, steps: s.steps });
+          if (item) broadcast(w, item);
         } else if (type === 'ghost') {
           const name = w.sessions.get(id)?.name;
           w.sessions.delete(id);
@@ -133,8 +139,11 @@ const server = createServer((req, res) => {
           if (name) {
             w.scores[name] = (w.scores[name] || 0) + 1;
             w.flag = { id, name, at: Date.now() };
+            bumpStreak(w.streaks, name, Date.now());
+            bumpWeek(w.week, name, Date.now());
           }
-          broadcast(w, { type: 'ghost', id, name, active: w.sessions.size, ghostsToday: w.ghostsToday, ghostsAllTime: w.ghostsAllTime, scores: w.scores, flag: w.flag });
+          const { streaks, champion } = stateOf(w);
+          broadcast(w, { type: 'ghost', id, name, active: w.sessions.size, ghostsToday: w.ghostsToday, ghostsAllTime: w.ghostsAllTime, scores: w.scores, flag: w.flag, streaks, champion });
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -165,6 +174,30 @@ wss.on('connection', (ws, req) => {
   w.clients.add(ws);
   resetDayIfNeeded(w);
   ws.send(JSON.stringify({ type: 'snapshot', ...stateOf(w) }));
+  // same viewer messages as the worker: an emote, or a name for an unnamed chick
+  let lastSent = 0;
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(String(raw));
+    } catch {
+      return;
+    }
+    const id = typeof msg.id === 'string' ? msg.id : '';
+    const s = w.sessions.get(id);
+    if (!s || Date.now() - lastSent < EMOTE_COOLDOWN_MS) return;
+    if (msg.type === 'emote' && EMOTES.includes(msg.emote)) {
+      lastSent = Date.now();
+      broadcast(w, { type: 'emote', id, emote: msg.emote });
+    } else if (msg.type === 'name' && !s.hookNamed) {
+      const name = cleanName(msg.name);
+      if (!name) return;
+      lastSent = Date.now();
+      s.name = name;
+      w.nicknames[id] = name;
+      broadcast(w, { type: 'name', id, name });
+    }
+  });
   ws.on('close', () => w.clients.delete(ws));
 });
 
