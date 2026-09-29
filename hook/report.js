@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const SERVER_URL = process.env.VIBEGEIST_SERVER || 'https://vibegeist.dayloop-dilara.workers.dev';
+const ROOM = (process.env.VIBEGEIST_ROOM || '').trim();
 const EVENT_TYPE = process.argv[2]; // 'join' | 'activity' | 'ghost'
 const DEBUG_LOG = process.env.VIBEGEIST_DEBUG_LOG; // unset by default; set to a file path to debug hook firing
 
@@ -49,13 +50,21 @@ process.stdin.on('end', async () => {
       return;
     }
 
-    const res = await fetch(`${SERVER_URL}/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, type: EVENT_TYPE, name: EVENT_TYPE === 'ghost' ? undefined : chickName() }),
-      signal: AbortSignal.timeout(2000),
-    });
-    debugLog(`sent ok, status=${res.status}`);
+    // VIBEGEIST_ROOM: a private room shared with friends (open the page with
+    // ?oda=<room> to watch it). The chick still climbs the public mountain too.
+    const name = EVENT_TYPE === 'ghost' ? undefined : chickName();
+    const rooms = ROOM ? [undefined, ROOM] : [undefined];
+    const results = await Promise.all(
+      rooms.map((room) =>
+        fetch(`${SERVER_URL}/event`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, type: EVENT_TYPE, name, room }),
+          signal: AbortSignal.timeout(2000),
+        })
+      )
+    );
+    debugLog(`sent ok, status=${results.map((r) => r.status).join(',')}`);
   } catch (err) {
     debugLog(`error: ${err && err.stack ? err.stack : err}`);
   }

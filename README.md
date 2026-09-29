@@ -37,6 +37,21 @@ Then open `/hooks` once inside Claude Code to reload the config.
 Every turn you run will now show up as a chick climbing the shared mountain,
 and rise away as a spirit the moment it finishes.
 
+## Race your friends in a private room
+
+Pick a room name and add it to the `env` block of everyone's `~/.claude/settings.json`:
+
+```json
+{ "env": { "VIBEGEIST_ROOM": "our-room" } }
+```
+
+Then all of you open `https://vibegeist.dayloop-dilara.workers.dev/?oda=our-room`.
+The room has its own mountain, its own daily summit scoreboard and its own
+summit flag. Your chick still climbs the public mountain as well.
+
+Your chick shows the first word of your Claude account's display name. Set
+`VIBEGEIST_NAME` in the same `env` block to use a nickname, or `off` to stay nameless.
+
 ## Run your own world instead
 
 By default the hook and notifier report to the public instance above. To run a
@@ -61,9 +76,11 @@ whenever a spirit rises or a new chick joins — no browser tab required.
 
 ## Privacy
 
-The hook script only ever sends a SHA-256 hash of your Claude Code session ID and
-an event name (`join` / `activity` / `ghost`). No file paths, no commands, no code,
-no prompts — nothing that identifies you or your project ever leaves your machine.
+The hook script only ever sends a SHA-256 hash of your Claude Code session ID,
+an event name (`join` / `activity` / `ghost`), the first word of your Claude
+account's display name (shown above your chick, visible to everyone watching;
+`VIBEGEIST_NAME=off` turns it off) and your room name if you set one. No email,
+no file paths, no commands, no code, no prompts ever leave your machine.
 
 ## What's here
 

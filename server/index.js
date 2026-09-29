@@ -10,27 +10,48 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PORT = process.env.PORT || 8787;
 const STALE_MS = 10 * 60 * 1000;
 
-// sessionHash -> { x, y, joinedAt, lastSeen }
-const sessions = new Map();
-let ghostsToday = 0;
-let ghostsAllTime = 0; // in-memory only here; the deployed worker persists this
-let dayKey = new Date().toDateString();
+// room -> world state; '' is the shared public world, anything else is a
+// private room (?oda=... on the page, VIBEGEIST_ROOM in the hook) - mirrors
+// the deployed worker, which keeps one Durable Object per room
+const worlds = new Map();
+function getWorld(room) {
+  let w = worlds.get(room);
+  if (!w) {
+    // sessions: sessionHash -> { x, y, joinedAt, lastSeen, name, steps }
+    // counters are in-memory only here; the deployed worker persists them
+    w = { sessions: new Map(), ghostsToday: 0, ghostsAllTime: 0, scores: {}, flag: null, clients: new Set(), dayKey: new Date().toDateString() };
+    worlds.set(room, w);
+  }
+  return w;
+}
 
-const clients = new Set();
-
-function resetDayIfNeeded() {
+function resetDayIfNeeded(w) {
   const today = new Date().toDateString();
-  if (today !== dayKey) {
-    dayKey = today;
-    ghostsToday = 0;
+  if (today !== w.dayKey) {
+    w.dayKey = today;
+    w.ghostsToday = 0;
+    w.scores = {};
   }
 }
 
-function broadcast(msg) {
+function broadcast(w, msg) {
   const data = JSON.stringify(msg);
-  for (const ws of clients) {
+  for (const ws of w.clients) {
     if (ws.readyState === ws.OPEN) ws.send(data);
   }
+}
+
+function activeList(w) {
+  return [...w.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name, steps: s.steps }));
+}
+
+function stateOf(w) {
+  return { active: activeList(w), ghostsToday: w.ghostsToday, ghostsAllTime: w.ghostsAllTime, scores: w.scores, flag: w.flag };
+}
+
+function cleanRoom(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
 }
 
 function hashId(raw) {
@@ -79,34 +100,41 @@ const server = createServer((req, res) => {
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => {
       try {
-        const { sessionId, type, name: rawName } = JSON.parse(body || '{}');
+        const { sessionId, type, name: rawName, room } = JSON.parse(body || '{}');
         const name = cleanName(rawName) || undefined;
         if (!sessionId || !type) throw new Error('missing fields');
-        resetDayIfNeeded();
+        const w = getWorld(cleanRoom(room));
+        resetDayIfNeeded(w);
         const id = hashId(sessionId);
 
         if (type === 'join') {
           const pos = seededPos(id);
-          sessions.set(id, { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name });
-          broadcast({ type: 'join', id, ...pos, name, active: sessions.size });
+          w.sessions.set(id, { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name, steps: 0 });
+          broadcast(w, { type: 'join', id, ...pos, name, active: w.sessions.size });
         } else if (type === 'activity') {
-          let s = sessions.get(id);
+          let s = w.sessions.get(id);
           if (!s) {
             // hook installed mid-session: no "join" ever fired, so treat the
             // first activity ping as an implicit join instead of dropping it
             const pos = seededPos(id);
-            s = { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name };
-            sessions.set(id, s);
-            broadcast({ type: 'join', id, ...pos, name, active: sessions.size });
+            s = { ...pos, joinedAt: Date.now(), lastSeen: Date.now(), name, steps: 0 };
+            w.sessions.set(id, s);
+            broadcast(w, { type: 'join', id, ...pos, name, active: w.sessions.size });
           } else {
             s.lastSeen = Date.now();
           }
-          broadcast({ type: 'activity', id });
+          s.steps += 1;
+          broadcast(w, { type: 'activity', id, steps: s.steps });
         } else if (type === 'ghost') {
-          sessions.delete(id);
-          ghostsToday += 1;
-          ghostsAllTime += 1;
-          broadcast({ type: 'ghost', id, active: sessions.size, ghostsToday, ghostsAllTime });
+          const name = w.sessions.get(id)?.name;
+          w.sessions.delete(id);
+          w.ghostsToday += 1;
+          w.ghostsAllTime += 1;
+          if (name) {
+            w.scores[name] = (w.scores[name] || 0) + 1;
+            w.flag = { id, name, at: Date.now() };
+          }
+          broadcast(w, { type: 'ghost', id, name, active: w.sessions.size, ghostsToday: w.ghostsToday, ghostsAllTime: w.ghostsAllTime, scores: w.scores, flag: w.flag });
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -119,16 +147,11 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/state') {
-    resetDayIfNeeded();
+  if (req.method === 'GET' && req.url.split('?')[0] === '/state') {
+    const w = getWorld(cleanRoom(new URL(req.url, 'http://x').searchParams.get('oda')));
+    resetDayIfNeeded(w);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(
-      JSON.stringify({
-        active: [...sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name })),
-        ghostsToday,
-        ghostsAllTime,
-      })
-    );
+    res.end(JSON.stringify(stateOf(w)));
     return;
   }
 
@@ -137,27 +160,23 @@ const server = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-wss.on('connection', (ws) => {
-  clients.add(ws);
-  resetDayIfNeeded();
-  ws.send(
-    JSON.stringify({
-      type: 'snapshot',
-      active: [...sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name })),
-      ghostsToday,
-      ghostsAllTime,
-    })
-  );
-  ws.on('close', () => clients.delete(ws));
+wss.on('connection', (ws, req) => {
+  const w = getWorld(cleanRoom(new URL(req.url, 'http://x').searchParams.get('oda')));
+  w.clients.add(ws);
+  resetDayIfNeeded(w);
+  ws.send(JSON.stringify({ type: 'snapshot', ...stateOf(w) }));
+  ws.on('close', () => w.clients.delete(ws));
 });
 
 // silently drop sessions that stopped reporting without a clean "ghost" event
 setInterval(() => {
   const now = Date.now();
-  for (const [id, s] of sessions) {
-    if (now - s.lastSeen > STALE_MS) {
-      sessions.delete(id);
-      broadcast({ type: 'leave', id, active: sessions.size });
+  for (const w of worlds.values()) {
+    for (const [id, s] of w.sessions) {
+      if (now - s.lastSeen > STALE_MS) {
+        w.sessions.delete(id);
+        broadcast(w, { type: 'leave', id, name: s.name, active: w.sessions.size });
+      }
     }
   }
 }, 60 * 1000);

@@ -13,6 +13,13 @@ const SUMMIT_EASE_RATE = 8.0;
 // endpoints, which already have their own arrival/placing ceremonies) -
 // passing one now lights up that actual place, not just a milestone number
 const LANDMARKS = WAYPOINTS.filter((wp) => wp.p > 0 && wp.p < 1);
+// each activity ping climbs one step; the last stretch is only ever covered
+// by the summit dash when the turn actually finishes
+const STEP = 0.07;
+const STEP_CAP = 0.92;
+function stepsToProgress(steps) {
+  return Math.min(steps * STEP, STEP_CAP);
+}
 const WAIT_IDLE_MS = 20000; // no activity ping for this long reads as "waiting"
 const BURST_MS = 500;
 // how big chicks/orbs/gravestones draw in the compact widget, relative to the
@@ -62,11 +69,32 @@ export class Task {
     this.overtakeAt = 0; // set by main.js when this task passes another - drives the widget's bounce
   }
 
-  activity(now) {
+  // steps: the server's count of activity pings this turn - when present it
+  // sets the target outright, so every viewer sees the same position
+  // instead of each counting from whenever their page happened to open
+  activity(now, steps) {
     this.pulse = now;
-    if (this.state === 'climbing') {
-      this.climbTarget = Math.min(this.climbTarget + 0.07, 0.92);
-    }
+    if (steps !== undefined) this.climbTarget = stepsToProgress(steps);
+    else if (this.state === 'climbing') this.climbTarget = Math.min(this.climbTarget + STEP, STEP_CAP);
+  }
+
+  // a viewer connecting mid-race: jump straight to the server's position
+  syncSteps(steps = 0) {
+    this.climbTarget = this.climbed = stepsToProgress(steps);
+  }
+
+  // one short line for the race panel, so nobody has to guess what the
+  // chick is doing from its pose alone
+  status(now) {
+    if (this.state === 'arriving') return 'yola çıktı';
+    if (this.state === 'summiting' || this.state === 'placing') return 'zirveye koşuyor!';
+    if (this.state === 'ascending') return '🏁 zirvede!';
+    return now - (this.pulse || this.since) > WAIT_IDLE_MS ? 'soluklanıyor' : 'tırmanıyor';
+  }
+
+  // 0..100 as shown in the race panel - the summit dash counts as the finish
+  get percent() {
+    return this.state === 'placing' || this.state === 'ascending' ? 100 : Math.round(this.climbed * 100);
   }
 
   // the task finished - dash to the summit, place the sphere, and rise away

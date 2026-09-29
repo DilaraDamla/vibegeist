@@ -8,11 +8,19 @@ import { NetworkClient } from './network.js';
 import { SoundEngine } from './sound.js';
 import { drawGravestone } from './gravestone.js';
 import { drawIdleChicks } from './idle.js';
+import { renderRacePanel, Announcer, drawSummitFlag, HighFives } from './race.js';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const hud = document.getElementById('hud');
 const soundBtn = document.getElementById('soundBtn');
+const racePanel = document.getElementById('race');
+const announcer = new Announcer(document.getElementById('toast'));
+const highFives = new HighFives();
+
+// ?oda=<name>: a private room - its own mountain, scoreboard and flag, for
+// playing with friends (their hooks set VIBEGEIST_ROOM to the same name)
+const room = (new URLSearchParams(location.search).get('oda') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
 
 const soundEngine = new SoundEngine();
 function updateSoundBtn() {
@@ -101,10 +109,17 @@ const prevClimbed = new Map(); // id -> last frame's climbed, racing tasks only 
 const gravestones = [];
 let ghostsToday = 0;
 let ghostsAllTime = 0;
+let scores = {}; // today's summits per player name
+let flag = null; // last player to summit: { id, name, at }
 
 function updateHud() {
   const active = [...tasks.values()].filter((t) => t.state !== 'ascending').length;
   hud.innerHTML = `şu an <b>${active}</b> civciv çalışıyor<small>bugün ${ghostsToday} ruh yükseldi · toplam ${ghostsAllTime}</small>`;
+  renderRacePanel(racePanel, tasks, Date.now(), scores, room);
+}
+
+function who(name) {
+  return name || 'bir civciv';
 }
 
 // palette colors already on the mountain, so a newcomer gets a different one
@@ -122,24 +137,35 @@ new NetworkClient((msg) => {
       const task = new Task(s.id, s.x, s.y * Math.PI * 2, now, takenColors(), s.name);
       task.state = 'climbing';
       task.since = now;
+      task.syncSteps(s.steps);
       tasks.set(s.id, task);
     }
     ghostsToday = msg.ghostsToday || 0;
     ghostsAllTime = msg.ghostsAllTime || 0;
+    scores = msg.scores || {};
+    flag = msg.flag || null;
   } else if (msg.type === 'join') {
     const task = new Task(msg.id, msg.x, msg.y * Math.PI * 2, now, takenColors(), msg.name);
     tasks.set(msg.id, task);
     soundEngine.playJoin(task.orbHue);
+    if (msg.name) announcer.say(`🐣 ${msg.name} yola çıktı`);
   } else if (msg.type === 'activity') {
-    tasks.get(msg.id)?.activity(now);
+    tasks.get(msg.id)?.activity(now, msg.steps);
   } else if (msg.type === 'ghost') {
     const task = tasks.get(msg.id);
     task?.complete(now);
     if (task) soundEngine.playSummit(task.orbHue);
     ghostsToday = msg.ghostsToday ?? ghostsToday + 1;
     ghostsAllTime = msg.ghostsAllTime ?? ghostsAllTime + 1;
+    if (msg.scores) scores = msg.scores;
+    if (msg.flag) flag = msg.flag;
+    // a turn ending IS the win: the chick reaches the summit exactly when
+    // that player's Claude finishes its reply
+    announcer.say(`🏆 ${who(msg.name)} zirveye çıktı! (Claude işini bitirdi)`);
   } else if (msg.type === 'leave') {
     const task = tasks.get(msg.id);
+    // the only way to "fall": no sign of life for 10 minutes mid-climb
+    if (task) announcer.say(`💤 ${who(msg.name)} yolda kaldı (10 dk ses çıkmadı)`);
     // only a task that never reached the summit gets a marker - a normal
     // completion already has its own summit + rising-spirit ending. Stored
     // as route progress, not raw pixels, so it resolves correctly on
@@ -151,7 +177,7 @@ new NetworkClient((msg) => {
     tasks.delete(msg.id);
   }
   updateHud();
-});
+}, room);
 
 let lastFrameTs = Date.now();
 function draw() {
@@ -177,6 +203,7 @@ function draw() {
     scene.drawFarRanges(ctx);
     mountain.draw(ctx);
     waypoints.draw(ctx, t, dt);
+    drawSummitFlag(ctx, route, flag, t);
   }
 
   ctx.textAlign = 'center';
@@ -232,6 +259,11 @@ function draw() {
   prevClimbed.clear();
   for (const task of racing) prevClimbed.set(task.id, task.climbed);
 
+  for (const [a, b] of highFives.detect(racing, now)) {
+    soundEngine.playJoin(a.orbHue);
+    announcer.say(`✋ ${who(a.name)} ile ${who(b.name)} yan yana, çak!`);
+  }
+
   let removedAny = false;
   for (const task of ordered) {
     const isLeader = showLeader && task.id === leaderId;
@@ -241,6 +273,7 @@ function draw() {
   }
   const placedLabels = [];
   for (const task of ordered) task.drawLabel(ctx, placedLabels);
+  highFives.draw(ctx, now);
   if (removedAny) {
     for (const [id, task] of tasks) if (task.finished) tasks.delete(id);
   }
@@ -268,6 +301,8 @@ pipBtn.addEventListener('click', async () => {
   }
 
   pipWindow.document.body.append(hud);
+  pipWindow.document.body.append(racePanel);
+  pipWindow.document.body.append(announcer.el);
   pipWindow.document.body.append(soundBtn);
   pipWindow.document.body.append(canvas);
   pipBtn.style.display = 'none';
@@ -284,6 +319,8 @@ pipBtn.addEventListener('click', async () => {
 
   pipWindow.addEventListener('pagehide', () => {
     document.body.append(hud);
+    document.body.append(racePanel);
+    document.body.append(announcer.el);
     document.body.append(soundBtn);
     document.body.append(canvas);
     pipBtn.style.display = '';

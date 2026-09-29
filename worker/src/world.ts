@@ -5,6 +5,16 @@ interface SessionInfo {
   y: number;
   lastSeen: number;
   name?: string;
+  // activity pings since this turn's join - the server-side climb progress,
+  // so every viewer (and a late joiner) sees the same race, not their own count
+  steps?: number;
+}
+
+// the last player to reach the summit - their name flies on the peak's flag
+interface Flag {
+  id: string;
+  name: string;
+  at: number;
 }
 
 interface Env {
@@ -41,6 +51,9 @@ export class VibegeistWorld extends DurableObject<Env> {
   sessions: Map<string, SessionInfo> = new Map();
   ghostsToday = 0;
   ghostsAllTime = 0;
+  // today's summits per player name, for the scoreboard - reset with the day
+  scores: Record<string, number> = {};
+  flag: Flag | null = null;
   dayKey = "";
   private ready: Promise<void>;
 
@@ -50,6 +63,8 @@ export class VibegeistWorld extends DurableObject<Env> {
       this.ghostsToday = (await ctx.storage.get<number>("ghostsToday")) ?? 0;
       this.ghostsAllTime = (await ctx.storage.get<number>("ghostsAllTime")) ?? 0;
       this.dayKey = (await ctx.storage.get<string>("dayKey")) ?? todayKey();
+      this.scores = (await ctx.storage.get<Record<string, number>>("scores")) ?? {};
+      this.flag = (await ctx.storage.get<Flag>("flag")) ?? null;
       // the Durable Object's in-memory state (this.sessions) is wiped whenever
       // the instance is evicted for inactivity - which can happen within
       // seconds between hook pings. Without this, sessions would flicker in
@@ -68,9 +83,15 @@ export class VibegeistWorld extends DurableObject<Env> {
     if (today !== this.dayKey) {
       this.dayKey = today;
       this.ghostsToday = 0;
+      this.scores = {};
       await this.ctx.storage.put("dayKey", today);
       await this.ctx.storage.put("ghostsToday", 0);
+      await this.ctx.storage.put("scores", {});
     }
+  }
+
+  private activeList() {
+    return [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name || undefined, steps: s.steps ?? 0 }));
   }
 
   private broadcast(msg: unknown) {
@@ -91,9 +112,11 @@ export class VibegeistWorld extends DurableObject<Env> {
     pair[1].send(
       JSON.stringify({
         type: "snapshot",
-        active: [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name || undefined })),
+        active: this.activeList(),
         ghostsToday: this.ghostsToday,
         ghostsAllTime: this.ghostsAllTime,
+        scores: this.scores,
+        flag: this.flag,
       })
     );
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -107,7 +130,7 @@ export class VibegeistWorld extends DurableObject<Env> {
 
     if (type === "join") {
       const pos = seededPos(id);
-      this.sessions.set(id, { ...pos, lastSeen: Date.now(), name });
+      this.sessions.set(id, { ...pos, lastSeen: Date.now(), name, steps: 0 });
       await this.persistSessions();
       this.broadcast({ type: "join", id, ...pos, name, active: this.sessions.size });
       const alarm = await this.ctx.storage.getAlarm();
@@ -118,7 +141,7 @@ export class VibegeistWorld extends DurableObject<Env> {
         // hook was installed mid-session, so no "join" ever fired for it -
         // treat the first activity ping as an implicit join instead of dropping it
         const pos = seededPos(id);
-        s = { ...pos, lastSeen: Date.now(), name };
+        s = { ...pos, lastSeen: Date.now(), name, steps: 0 };
         this.sessions.set(id, s);
         await this.persistSessions();
         this.broadcast({ type: "join", id, ...pos, name, active: this.sessions.size });
@@ -126,12 +149,20 @@ export class VibegeistWorld extends DurableObject<Env> {
         if (!alarm) await this.ctx.storage.setAlarm(Date.now() + 60_000);
       } else {
         s.lastSeen = Date.now();
-        await this.persistSessions();
       }
-      this.broadcast({ type: "activity", id });
+      s.steps = (s.steps ?? 0) + 1;
+      await this.persistSessions();
+      this.broadcast({ type: "activity", id, steps: s.steps });
     } else if (type === "ghost") {
+      const name = this.sessions.get(id)?.name;
       this.sessions.delete(id);
       this.ghostsToday += 1;
+      if (name) {
+        this.scores[name] = (this.scores[name] ?? 0) + 1;
+        this.flag = { id, name, at: Date.now() };
+        await this.ctx.storage.put("scores", this.scores);
+        await this.ctx.storage.put("flag", this.flag);
+      }
       this.ghostsAllTime += 1;
       await this.persistSessions();
       await this.ctx.storage.put("ghostsToday", this.ghostsToday);
@@ -139,9 +170,12 @@ export class VibegeistWorld extends DurableObject<Env> {
       this.broadcast({
         type: "ghost",
         id,
+        name,
         active: this.sessions.size,
         ghostsToday: this.ghostsToday,
         ghostsAllTime: this.ghostsAllTime,
+        scores: this.scores,
+        flag: this.flag,
       });
     }
 
@@ -149,16 +183,20 @@ export class VibegeistWorld extends DurableObject<Env> {
   }
 
   async getState(): Promise<{
-    active: { id: string; x: number; y: number; name?: string }[];
+    active: { id: string; x: number; y: number; name?: string; steps: number }[];
     ghostsToday: number;
     ghostsAllTime: number;
+    scores: Record<string, number>;
+    flag: Flag | null;
   }> {
     await this.ready;
     await this.resetDayIfNeeded();
     return {
-      active: [...this.sessions.entries()].map(([id, s]) => ({ id, x: s.x, y: s.y, name: s.name || undefined })),
+      active: this.activeList(),
       ghostsToday: this.ghostsToday,
       ghostsAllTime: this.ghostsAllTime,
+      scores: this.scores,
+      flag: this.flag,
     };
   }
 
@@ -170,7 +208,7 @@ export class VibegeistWorld extends DurableObject<Env> {
       if (now - s.lastSeen > STALE_MS) {
         this.sessions.delete(id);
         changed = true;
-        this.broadcast({ type: "leave", id, active: this.sessions.size });
+        this.broadcast({ type: "leave", id, name: s.name, active: this.sessions.size });
       }
     }
     if (changed) await this.persistSessions();
