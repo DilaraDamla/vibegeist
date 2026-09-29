@@ -8,6 +8,7 @@ import { NetworkClient } from './network.js';
 import { SoundEngine } from './sound.js';
 import { drawGravestone } from './gravestone.js';
 import { drawIdleChicks } from './idle.js';
+import { Ambience } from './ambient.js';
 import { renderRacePanel, Announcer, drawSummitFlag, HighFives, drawItemBoxes, MeBar } from './race.js';
 
 const canvas = document.getElementById('c');
@@ -75,6 +76,8 @@ const scene = new Scene(canvas);
 const mountain = new Mountain(canvas);
 const route = new Route(canvas);
 const waypoints = new Waypoints(canvas, route);
+const ambience = new Ambience(canvas);
+ambience.setAnchors(waypoints.anchors);
 const sideRoute = new SideRoute(canvas);
 const widgetScene = new WidgetScene(canvas, sideRoute);
 // a shared link can carry ?widget=1 so it opens straight into the compact
@@ -130,6 +133,8 @@ function resizeAll() {
   scene.resize();
   mountain.resize();
   waypoints.resize();
+  ambience.resize();
+  ambience.setAnchors(waypoints.anchors);
 }
 addEventListener('resize', resizeAll);
 
@@ -257,18 +262,22 @@ function draw() {
   // fit the whole diorama legibly
   scene.updateStorm();
   const storm = scene.stormFrac; // storms play out in the widget too, not just the main diorama
+  const breath = ambience.breath(t);
+  ambience.update(now);
   soundEngine.setStormIntensity(storm);
   const camera = pipActive ? updateCamera(dt) : null;
   if (pipActive) {
     widgetScene.draw(ctx, t, camera);
-    scene.drawWind(ctx, t, dt, storm);
+    scene.drawWind(ctx, t, dt, storm, breath);
   } else {
     scene.drawSky(ctx);
     scene.drawStars(ctx, t);
-    scene.drawWind(ctx, t, dt, storm);
+    ambience.drawSky(ctx, t, dt, now, breath);
+    scene.drawWind(ctx, t, dt, storm, breath);
     scene.drawFarRanges(ctx);
+    ambience.drawBirds(ctx, t, dt);
     mountain.draw(ctx);
-    waypoints.draw(ctx, t, dt);
+    waypoints.draw(ctx, t, dt, Math.max(breath, storm));
     drawSummitFlag(ctx, route, flag, t);
   }
 
@@ -350,6 +359,7 @@ function draw() {
   // has to stay in sync with the render loop, not just with socket events
   updateHud();
 
+  if (!pipActive) ambience.drawNear(ctx, t, dt, now, Math.max(breath, storm));
   scene.drawSnow(ctx, t, dt);
 
   requestAnimationFrame(draw);

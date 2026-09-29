@@ -84,7 +84,9 @@ export class Waypoints {
     }));
   }
 
-  draw(ctx, t, dt) {
+  // wind: the ambient breath (0..1) - trees and grass only sway when the air moves
+  draw(ctx, t, dt, wind = 1) {
+    this.wind = wind;
     this.drawWaterfall(ctx, t);
     this.drawCave(ctx, t);
     this.drawRidge(ctx);
@@ -96,7 +98,7 @@ export class Waypoints {
 
   drawForest(ctx, t) {
     for (const tr of this.trees) {
-      const sway = Math.sin(t * 0.5 + tr.phase) * 0.03;
+      const sway = Math.sin(t * 0.5 + tr.phase) * 0.03 * (0.3 + (this.wind ?? 1));
       ctx.save();
       ctx.translate(tr.x, tr.y);
       ctx.rotate(sway);
@@ -475,13 +477,15 @@ export class Waypoints {
     for (const g of this.grassTufts) {
       const gx = camp.x + g.dx;
       const gy = camp.y + g.dy;
+      // each tuft bends on its own beat, harder when the breeze is up
+      const lean = g.lean + Math.sin(t * 1.3 + g.dx * 0.23) * 0.4 * (this.wind ?? 1);
       ctx.beginPath();
       ctx.moveTo(gx - 2, gy);
-      ctx.quadraticCurveTo(gx - 2 + g.lean * 4, gy - g.h, gx - 2 + g.lean * 6, gy - g.h);
+      ctx.quadraticCurveTo(gx - 2 + lean * 4, gy - g.h, gx - 2 + lean * 6, gy - g.h);
       ctx.moveTo(gx, gy);
-      ctx.quadraticCurveTo(gx + g.lean * 4, gy - g.h * 1.2, gx + g.lean * 6, gy - g.h * 1.2);
+      ctx.quadraticCurveTo(gx + lean * 4, gy - g.h * 1.2, gx + lean * 6, gy - g.h * 1.2);
       ctx.moveTo(gx + 2, gy);
-      ctx.quadraticCurveTo(gx + 2 + g.lean * 4, gy - g.h, gx + 2 + g.lean * 6, gy - g.h);
+      ctx.quadraticCurveTo(gx + 2 + lean * 4, gy - g.h, gx + 2 + lean * 6, gy - g.h);
       ctx.stroke();
     }
 

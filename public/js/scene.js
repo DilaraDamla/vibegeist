@@ -128,10 +128,12 @@ export class Scene {
   // (0..1) speeds the drift/spin and brightens them during a storm, rather
   // than spawning extra gusts - cheaper, and the existing ones just feel
   // more agitated.
-  drawWind(ctx, t, dt, storm = 0) {
+  // breath (0..1): the ambient wind cycle from ambient.js - in a lull the
+  // swirls slow right down and nearly fade, so the sky gets its still moments
+  drawWind(ctx, t, dt, storm = 0, breath = 1) {
     const canvas = this.canvas;
-    const speedMul = 1 + storm * 2.2;
-    const opacityMul = 1 + storm * 1.3;
+    const speedMul = 0.35 + breath * 0.9 + storm * 2.2;
+    const opacityMul = 0.3 + breath * 0.7 + storm * 1.3;
     ctx.strokeStyle = '#d2d7eb';
     ctx.lineCap = 'round';
     for (const g of this.windGusts) {
