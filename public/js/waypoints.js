@@ -85,6 +85,10 @@ export class Waypoints {
   }
 
   // wind: the ambient breath (0..1) - trees and grass only sway when the air moves
+  flareCamp(now) {
+    this.flareAt = now;
+  }
+
   draw(ctx, t, dt, wind = 1) {
     this.wind = wind;
     this.drawWaterfall(ctx, t);
@@ -564,7 +568,10 @@ export class Waypoints {
     ctx.lineTo(camp.x + 6, camp.y + 1);
     ctx.stroke();
 
-    const flick = 0.7 + 0.3 * Math.sin(t * 9) * Math.sin(t * 3.3);
+    // someone just arrived at camp: the fire answers with a short flare
+    const flareAge = this.flareAt ? (Date.now() - this.flareAt) / 1600 : 1;
+    const flare = flareAge < 1 ? Math.sin(flareAge * Math.PI) * 0.8 : 0;
+    const flick = (0.7 + 0.3 * Math.sin(t * 9) * Math.sin(t * 3.3)) * (1 + flare);
     const fireGlow = ctx.createRadialGradient(camp.x, camp.y - 4, 0, camp.x, camp.y - 4, 22 * flick);
     fireGlow.addColorStop(0, `rgba(255,170,90,${0.4 * flick})`);
     fireGlow.addColorStop(1, 'rgba(255,120,60,0)');

@@ -9,6 +9,10 @@ import { drawHat } from './accessories.js';
 // look: the chick's character from look.js (colors, tuft, eyes, hat) - when
 // absent it falls back to plain hue-derived colors and the default face.
 // happy: closed ^^ eyes (summit). sweat: 0..1, a bead of sweat in a storm.
+// gaze: {x,y} -1..1 where the pupils look, in the chick's own facing space
+// (x>0 ahead, x<0 back over its shoulder, y<0 up). blink: eyes shut this
+// frame. tilt: extra lean around the feet (>0 forward, <0 back, as when
+// looking up). tired: 0..1 heavy eyelids.
 // reachToward: {x,y} in the chick's local "facing right" space to reach an arm
 // (or, while pushing, both arms) toward the sphere, or null for a relaxed arm.
 // sitting: a relaxed, upright, legs-tucked idle pose (for when there's
@@ -30,6 +34,10 @@ export function drawChick(ctx, px, groundY, opts) {
     eating = false,
     happy = false,
     sweat = 0,
+    gaze = null,
+    blink = false,
+    tilt = 0,
+    tired = 0,
     t = 0,
   } = opts;
   const bodyColor = look ? look.body : `hsl(${hue}, 62%, 72%)`;
@@ -47,6 +55,8 @@ export function drawChick(ctx, px, groundY, opts) {
   // around both need no lean at all.
   ctx.rotate(armsRaised || sitting ? 0 : pushing ? 0.1 + strain * 0.5 : 0.05);
   if (facingLeft) ctx.scale(-1, 1);
+  // after the mirror, so forward/back mean the same thing both ways
+  if (tilt) ctx.rotate(tilt);
 
   let bodyCy;
   if (sitting) {
@@ -184,7 +194,7 @@ export function drawChick(ctx, px, groundY, opts) {
   ctx.arc(bodyR * 0.4, bodyCy - bodyR * 0.05, bodyR * 0.22, 0, Math.PI * 2);
   ctx.fill();
 
-  drawEye(ctx, happy ? 'happy' : look ? look.eyes : 'default', bodyR, bodyCy, bodyColor);
+  drawEye(ctx, happy ? 'happy' : blink ? 'closed' : look ? look.eyes : 'default', bodyR, bodyCy, bodyColor, gaze, tired);
 
   if (sweat > 0.05) {
     // a bead that slides down the back of the head and restarts
@@ -246,7 +256,9 @@ export function drawContactShadow(ctx, px, groundY, scale = 1) {
   ctx.globalAlpha = 0.35;
   ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.ellipse(px, groundY + 12 * scale, 10 * scale, 3 * scale, 0, 0, Math.PI * 2);
+  // right under the feet - the old +12 offset dated from the emoji chick,
+  // whose glyph sat higher, and left every drawn chick floating over its shadow
+  ctx.ellipse(px, groundY + 1.5 * scale, 10 * scale, 3 * scale, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
 }
@@ -290,10 +302,26 @@ function drawTuft(ctx, type, R, cy, color) {
   }
 }
 
-function drawEye(ctx, type, R, cy, bodyColor) {
+function drawEye(ctx, type, R, cy, bodyColor, gaze = null, tired = 0) {
   const ex = R * 0.3;
   const ey = cy - R * 0.45;
   const dark = '#20140a';
+  // how far the pupil sits from its resting spot - small, or the eye reads
+  // as crossed rather than glancing
+  const gx = gaze ? gaze.x * R * 0.1 : 0;
+  const gy = gaze ? gaze.y * R * 0.09 : 0;
+
+  if (type === 'closed') {
+    // a blink: a short soft arc where the eye was
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = Math.max(1, R * 0.1);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(ex - R * 0.2, ey + R * 0.02);
+    ctx.quadraticCurveTo(ex, ey + R * 0.12, ex + R * 0.2, ey + R * 0.02);
+    ctx.stroke();
+    return;
+  }
 
   if (type === 'happy') {
     // closed, smiling ^ - the summit face
@@ -312,11 +340,11 @@ function drawEye(ctx, type, R, cy, bodyColor) {
     // small beady eye with a raised brow - no white, reads as "hm?"
     ctx.fillStyle = dark;
     ctx.beginPath();
-    ctx.arc(ex + R * 0.06, ey, R * 0.15, 0, Math.PI * 2);
+    ctx.arc(ex + R * 0.06 + gx * 0.6, ey + gy * 0.6, R * 0.15, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(ex + R * 0.11, ey - R * 0.06, R * 0.05, 0, Math.PI * 2);
+    ctx.arc(ex + R * 0.11 + gx * 0.6, ey - R * 0.06 + gy * 0.6, R * 0.05, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = dark;
     ctx.lineWidth = Math.max(1, R * 0.08);
@@ -336,16 +364,29 @@ function drawEye(ctx, type, R, cy, bodyColor) {
   ctx.fill();
   ctx.fillStyle = dark;
   ctx.beginPath();
-  ctx.arc(ex + R * 0.08, ey, pupilR, 0, Math.PI * 2);
+  ctx.arc(ex + R * 0.08 + gx, ey + gy, pupilR, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.arc(ex + R * 0.18, ey - R * 0.1, R * (big ? 0.1 : 0.08), 0, Math.PI * 2);
+  ctx.arc(ex + R * 0.18 + gx, ey - R * 0.1 + gy, R * (big ? 0.1 : 0.08), 0, Math.PI * 2);
   ctx.fill();
   if (big) {
     ctx.beginPath();
-    ctx.arc(ex + R * 0.0, ey + R * 0.1, R * 0.05, 0, Math.PI * 2);
+    ctx.arc(ex + R * 0.0 + gx, ey + R * 0.1 + gy, R * 0.05, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // tiredness: an upper lid in the body color sliding down over the eye
+  // (the 'sleepy' look below already has its own, heavier one)
+  if (tired > 0.05 && type !== 'sleepy') {
+    const lid = whiteR * 2 * Math.min(0.55, tired * 0.55);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(ex, ey, whiteR + 0.5, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(ex - whiteR - 1, ey - whiteR - 1, whiteR * 2 + 2, lid + 1);
+    ctx.restore();
   }
 
   if (type === 'sleepy') {

@@ -69,6 +69,8 @@ export class Ambience {
     this.lanternGlow = glowSprite('255,170,90', 26);
     this.eyeGlow = glowSprite('255,226,150', 5);
     this.birds = [];
+    this.spiritStars = []; // one per spirit that rose this visit
+    this.sparkles = []; // falling over the summit after someone reaches it
     this.shootingStar = null;
     this.lantern = null;
     this.eyes = null;
@@ -172,9 +174,48 @@ export class Ambience {
     }
   }
 
+  // a spirit that rose away settles into the sky as a new star - flares
+  // when it arrives, then twinkles softly for the rest of the visit (old
+  // ones fade slowly, so the sky never fills up)
+  addSpiritStar(x, hue, now) {
+    const { width: w, height: h } = this.canvas;
+    let sx = x + (Math.random() - 0.5) * 80;
+    // keep clear of the peak's own glow, where a new star would just vanish
+    if (Math.abs(sx - w / 2) < w * 0.09) sx += (sx < w / 2 ? -1 : 1) * w * 0.1;
+    this.spiritStars.push({ x: sx, y: h * between(0.04, 0.26), hue, at: now, phase: Math.random() * TAU });
+    if (this.spiritStars.length > 40) this.spiritStars.shift();
+  }
+
+  // a soft shower of light drifting down off the peak
+  summitSparkle(x, y, hue, now) {
+    for (let i = 0; i < 16; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4;
+      const v = between(30, 70);
+      this.sparkles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, hue, at: now, life: between(1600, 2600) });
+    }
+  }
+
   // behind the far ranges: clouds, the shooting star, the lantern
   drawSky(ctx, t, dt, now, breath) {
     const w = this.canvas.width;
+    for (const s of this.spiritStars) {
+      const age = (now - s.at) / 1000;
+      if (age < 0) continue;
+      const arrive = Math.min(1, age / 1.2);
+      const flare = age < 2.5 ? Math.max(0, 1 - age / 2.5) : 0;
+      const fade = Math.max(0.25, 1 - Math.max(0, age - 600) / 900);
+      const tw = 0.6 + 0.4 * Math.sin(t * 1.3 + s.phase);
+      ctx.globalAlpha = arrive * fade * tw;
+      ctx.fillStyle = `hsl(${s.hue}, 70%, 88%)`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 1.5 + flare * 2, 0, TAU);
+      ctx.fill();
+      if (flare > 0) {
+        ctx.globalAlpha = flare * 0.8;
+        ctx.drawImage(this.fireflyGlow, s.x - 10, s.y - 10);
+      }
+    }
+    ctx.globalAlpha = 1;
     for (const c of this.clouds) {
       c.x += c.speed * (0.5 + breath) * dt;
       if (c.x > w + 20) c.x = -c.sprite.width - 20;
@@ -264,6 +305,18 @@ export class Ambience {
       ctx.globalAlpha = a;
       ctx.fillStyle = '#fff2c4';
       ctx.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
+    }
+
+    this.sparkles = this.sparkles.filter((p) => now - p.at < p.life);
+    for (const p of this.sparkles) {
+      const f = (now - p.at) / p.life;
+      p.vy += 40 * dt; // settles back down under its own weight
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 1 - dt * 0.8;
+      ctx.globalAlpha = (1 - f) * (0.6 + 0.4 * Math.sin(t * 20 + p.x));
+      ctx.fillStyle = `hsl(${p.hue}, 80%, 85%)`;
+      ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
     }
 
     const { width: w, height: h } = this.canvas;

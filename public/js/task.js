@@ -3,6 +3,7 @@ import { drawOrb, drawOrbShadow, drawOrbTrail, drawOrbBurst } from './orb.js';
 import { drawSpirit } from './spirit.js';
 import { pickLook } from './look.js';
 import { WAYPOINTS } from './route.js';
+import { hashRand } from './utils.js';
 
 const ARRIVE_MS = 700;
 const PLACING_MS = 950;
@@ -22,6 +23,20 @@ export function stepsToProgress(steps) {
 }
 const WAIT_IDLE_MS = 20000;
 const EMOTE_MS = 2200;
+const CHEER_MS = 1600;
+const STUMBLE_MS = 600;
+const GLANCE_SLOT_S = 7; // an idle glance may start once per slot...
+const GLANCE_S = 1.4; // ...and lasts this long
+// how each eye type tends to behave - a little personality, from the same
+// seed as the look: curious ones look around a lot, determined ones keep
+// their eyes on the climb and rarely trip, sleepy ones tire early
+const TEMPERAMENT = {
+  curious: { glance: 0.75, tire: 1, stumble: 1 },
+  sparkle: { glance: 0.5, tire: 0.8, stumble: 1 },
+  determined: { glance: 0.2, tire: 0.5, stumble: 0.4 },
+  sleepy: { glance: 0.35, tire: 1.6, stumble: 1.2 },
+  default: { glance: 0.45, tire: 1, stumble: 1 },
+};
 const EFFECT_MS = 1400;
 export const EMOTE_ICONS = { wave: '👋', dance: '💃', heart: '❤️', taunt: '😤' }; // no activity ping for this long reads as "waiting"
 const BURST_MS = 500;
@@ -74,6 +89,14 @@ export class Task {
     this.emote = null; // { kind, at } sent by the chick's own player from the page
     this.champion = false; // most summits this week - a 👑 by the name
     this.streak = 0; // days in a row with a summit
+    this.joinedAt = now;
+    this.lookAt = null; // { x, y, until } - something happening nearby, set by main.js
+    this.neighbor = null; // { x, y } of the closest other chick, set by main.js
+    this.peakAt = null; // { x, y } of the summit on the active route, set by main.js
+    this.cheerAt = 0; // another chick just summited
+    this.stumbleAt = 0;
+    this.seed = Math.floor(phase * 1000);
+    this.temper = TEMPERAMENT[this.look.eyes] || TEMPERAMENT.default;
   }
 
   // steps: the server's count of activity pings this turn - when present it
@@ -81,6 +104,8 @@ export class Task {
   // instead of each counting from whenever their page happened to open
   activity(now, steps) {
     this.pulse = now;
+    // the odd misstep on the way up - rare, and rarer for determined ones
+    if (this.state === 'climbing' && this.climbed > 0.05 && Math.random() < 0.04 * this.temper.stumble) this.stumbleAt = now;
     if (steps !== undefined) this.climbTarget = stepsToProgress(steps);
     else if (this.state === 'climbing') this.climbTarget = Math.min(this.climbTarget + STEP, STEP_CAP);
   }
@@ -263,9 +288,82 @@ export class Task {
   // ring, like the place itself is answering "yes, you were here"
   // every chick pose goes through here, so emotes and item effects apply
   // the same way to every state and to both the main view and the widget
+  // what the chick is paying attention to this frame: blinking, glancing
+  // around or at a neighbor, looking toward something that just happened,
+  // tiring on a long climb, perking up near the top, cheering when someone
+  // else summits, the odd stumble. Returns overrides for drawChick plus a
+  // hop height.
+  mind(now, px, groundY, opts) {
+    const sec = now / 1000;
+    const r = opts.bodyR;
+    const out = {};
+    let hop = 0;
+    const eyeY = groundY - r * 2.2;
+    const toward = (p) => {
+      const dx = p.x - px;
+      const dy = p.y - eyeY;
+      const lx = opts.facingLeft ? -dx : dx;
+      const len = Math.hypot(lx, dy) || 1;
+      return { x: lx / len, y: dy / len };
+    };
+
+    if (!opts.happy) {
+      const period = 3.1 + (this.phase % 1.9);
+      if ((sec + this.phase * 5) % period < 0.12) out.blink = true;
+    }
+
+    const climbing = this.state === 'climbing';
+    const nearTop = climbing && this.climbed > 0.78;
+    if (this.lookAt && now < this.lookAt.until) {
+      out.gaze = toward(this.lookAt);
+    } else if (nearTop && this.peakAt && (sec + this.phase) % 5 < 2) {
+      // the summit is right there - keep glancing up at it
+      out.gaze = toward(this.peakAt);
+    } else {
+      const slot = Math.floor((sec + this.phase * 7) / GLANCE_SLOT_S);
+      const inSlot = (sec + this.phase * 7) % GLANCE_SLOT_S;
+      const roll = hashRand(slot * 131 + this.seed);
+      if (inSlot < GLANCE_S && roll < this.temper.glance) {
+        const kind = hashRand(slot * 17 + this.seed + 5);
+        if (this.neighbor && kind < 0.4) out.gaze = toward(this.neighbor);
+        else if (kind < 0.6) out.gaze = { x: -0.9, y: -0.2 }; // back down the trail
+        else if (kind < 0.8) out.gaze = { x: 0.3, y: -0.95 }; // up at the sky
+        else out.gaze = { x: 0.8, y: 0.6 }; // down at the orb
+      }
+    }
+    // a long look up tips the head back a touch
+    if (out.gaze && out.gaze.y < -0.7) out.tilt = -0.1;
+
+    if (climbing) {
+      // tiredness creeps in after a couple of minutes of climbing, and the
+      // last stretch perks it right back up
+      const mins = (now - this.joinedAt) / 60000;
+      const tired = Math.min(0.85, Math.max(0, (mins - 2) / 4) * this.temper.tire);
+      out.tired = nearTop ? tired * 0.3 : tired;
+      if (nearTop && now - this.pulse < 1500) out.excitedFlap = Math.sin(sec * 14) * 0.5;
+    }
+
+    const cheer = now - this.cheerAt;
+    if (cheer < CHEER_MS) {
+      const f = cheer / CHEER_MS;
+      hop = Math.abs(Math.sin(f * Math.PI * 3)) * r * 0.55 * (1 - f);
+      out.excitedFlap = Math.sin(sec * 24) * 0.6 * (1 - f);
+    }
+
+    const stumble = now - this.stumbleAt;
+    if (stumble < STUMBLE_MS) out.tilt = (out.tilt || 0) + Math.sin((stumble / STUMBLE_MS) * Math.PI) * 0.45;
+
+    return { out, hop };
+  }
+
+  // every chick pose goes through here, so emotes and item effects apply
+  // the same way to every state and to both the main view and the widget
   drawChickAt(ctx, px, groundY, opts) {
     const now = Date.now();
     const r = opts.bodyR;
+    const { out: mind, hop } = this.mind(now, px, groundY, opts);
+    opts = { ...opts, ...mind };
+    groundY -= hop;
     const emote = this.emote && now - this.emote.at < EMOTE_MS ? this.emote.kind : null;
     if (emote === 'dance') {
       groundY -= Math.abs(Math.sin(now / 110)) * r * 0.6;

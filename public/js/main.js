@@ -166,6 +166,20 @@ function who(name) {
   return name || 'bir civciv';
 }
 
+// chicks within `radius` px of `task` turn to look at it for a moment -
+// the world reacting to someone's emote, slip or arrival (onlyNearCamp: a
+// newcomer only catches the eye of chicks that haven't climbed far yet)
+function lookNear(task, radius, ms, now, onlyNearCamp = 1) {
+  for (const other of tasks.values()) {
+    if (other === task || other.state === 'ascending' || other.climbed > onlyNearCamp) continue;
+    if (Math.hypot(other.lastX - task.lastX, other.lastY - task.lastY) > radius) continue;
+    other.lookAt = { x: task.lastX, y: task.lastY - 20, until: now + ms };
+  }
+}
+
+// the sparkle shower falls a beat after the orb lands, not on the message
+const summitShowers = [];
+
 // palette colors already on the mountain, so a newcomer gets a different one
 function takenColors() {
   return new Set([...tasks.values()].filter((task) => task.state !== 'ascending').map((task) => task.look.colorIdx));
@@ -194,13 +208,24 @@ const net = new NetworkClient((msg) => {
     const task = new Task(msg.id, msg.x, msg.y * Math.PI * 2, now, takenColors(), msg.name);
     tasks.set(msg.id, task);
     soundEngine.playJoin(task.orbHue);
-    if (msg.name) announcer.say(`🐣 ${msg.name} yola çıktı`);
+    // the world notices the newcomer instead of a banner: the campfire
+    // flares, and whoever's still near camp turns to look
+    waypoints.flareCamp(now);
+    lookNear(task, 9999, 1500, now, 0.25);
   } else if (msg.type === 'activity') {
     tasks.get(msg.id)?.activity(now, msg.steps);
   } else if (msg.type === 'ghost') {
     const task = tasks.get(msg.id);
     task?.complete(now);
     if (task) soundEngine.playSummit(task.orbHue);
+    // everyone else on the mountain looks up and gives a little hop
+    const peak = (pipActive ? null : route.pointAt(1, 0));
+    for (const other of tasks.values()) {
+      if (other === task || other.state === 'ascending') continue;
+      other.cheerAt = now + Math.random() * 300;
+      if (peak) other.lookAt = { ...peak, until: now + 2200 };
+    }
+    if (peak && task) summitShowers.push({ hue: task.orbHue, at: now + 900 });
     ghostsToday = msg.ghostsToday ?? ghostsToday + 1;
     ghostsAllTime = msg.ghostsAllTime ?? ghostsAllTime + 1;
     if (msg.scores) scores = msg.scores;
@@ -219,6 +244,7 @@ const net = new NetworkClient((msg) => {
       if (victim) {
         victim.activity(now, msg.targetSteps);
         victim.effect = { kind: 'slip', at: now };
+        lookNear(victim, 170, 1400, now);
       }
       soundEngine.playOvertake(task?.orbHue ?? 0);
       announcer.say(`🍌 ${who(task?.name)} muz bıraktı, ${who(victim?.name)} kaydı!`);
@@ -229,7 +255,10 @@ const net = new NetworkClient((msg) => {
     }
   } else if (msg.type === 'emote') {
     const task = tasks.get(msg.id);
-    if (task) task.emote = { kind: msg.emote, at: now };
+    if (task) {
+      task.emote = { kind: msg.emote, at: now };
+      lookNear(task, 170, 1600, now);
+    }
   } else if (msg.type === 'name') {
     const task = tasks.get(msg.id);
     if (task) task.name = msg.name;
@@ -302,6 +331,26 @@ function draw() {
   // back-to-front by ground height, so overlapping chicks stack sensibly
   const ordered = [...tasks.values()].sort((a, b) => a.lastY - b.lastY);
   for (const task of ordered) task.update(dt, now, activeRoute);
+  // who each chick could glance at, and where the summit is on this view
+  const peakPt = activeRoute.pointAt(1, 0);
+  for (const task of ordered) {
+    task.peakAt = peakPt;
+    let best = null;
+    let bestD = 140;
+    for (const other of ordered) {
+      if (other === task || other.state === 'ascending') continue;
+      const d = Math.hypot(other.lastX - task.lastX, other.lastY - task.lastY);
+      if (d < bestD) {
+        bestD = d;
+        best = other;
+      }
+    }
+    task.neighbor = best ? { x: best.lastX, y: best.lastY - 20 } : null;
+  }
+  while (summitShowers.length && summitShowers[0].at <= now) {
+    const s = summitShowers.shift();
+    if (!pipActive) ambience.summitSparkle(peakPt.x, peakPt.y - 10, s.hue, now);
+  }
 
   // whoever is furthest along gets a crown - only meaningful with an actual
   // race (2+ still-climbing tasks), never for a lone chick
@@ -336,9 +385,9 @@ function draw() {
   prevClimbed.clear();
   for (const task of racing) prevClimbed.set(task.id, task.climbed);
 
-  for (const [a, b] of highFives.detect(racing, now)) {
+  for (const [a] of highFives.detect(racing, now)) {
+    // the ✋ burst between them says it - no banner needed
     soundEngine.playJoin(a.orbHue);
-    announcer.say(`✋ ${who(a.name)} ile ${who(b.name)} yan yana, çak!`);
   }
 
   let removedAny = false;
@@ -352,7 +401,12 @@ function draw() {
   for (const task of ordered) task.drawLabel(ctx, placedLabels);
   highFives.draw(ctx, now);
   if (removedAny) {
-    for (const [id, task] of tasks) if (task.finished) tasks.delete(id);
+    for (const [id, task] of tasks) {
+      if (!task.finished) continue;
+      // the spirit doesn't just vanish - it becomes a star in the sky
+      if (!pipActive) ambience.addSpiritStar(task.lastX, task.chickHue, now);
+      tasks.delete(id);
+    }
   }
   // a task's state (and so the "active" count) can change without a network
   // message arriving - e.g. entering 'ascending' mid-animation - so the HUD
